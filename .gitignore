@@ -1,0 +1,5 @@
+.vscode
+*/build
+*/config/config.env
+*.session.sql
+*_test

@@ -1,0 +1,48 @@
+services:
+  postgres:
+    container_name: INSTANT_db
+    image: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: toor
+      PGDATA: /data/postgres
+    volumes:
+       - postgres:/data/postgres
+    ports:
+      - "5432:5432"
+    networks:
+      - postgres
+    restart: unless-stopped
+
+  auth_service:
+    container_name: INSTANT_auth_service
+    build:
+      context: ./auth/
+      dockerfile: Dockerfile
+    ports:
+      - "51756:51756"
+    networks:
+      - postgres
+    depends_on:
+      - postgres
+    restart: no
+  
+  chat_service:
+    container_name: INSTANT_chat_service
+    build:
+      context: ./chat/
+      dockerfile: Dockerfile
+    ports:
+      - "51756:51756"
+    networks:
+      - postgres
+    depends_on:
+      - postgres
+    restart: no
+
+networks:
+  postgres:
+    driver: bridge
+
+volumes:
+  postgres:
