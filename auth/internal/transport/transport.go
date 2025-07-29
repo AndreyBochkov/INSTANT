@@ -24,18 +24,25 @@ import (
 	"auth_service/pkg/postgres"
 )
 
-func New(pool postgres.PGXPool, jwtKey string) Transport {
-	return Transport{pool: pool, jwtKey: jwtKey}
+func New(pool postgres.PGXPool, jwtKey string, version int) Transport {
+	return Transport{pool: pool, jwtKey: jwtKey, version: version}
 }
 
-func handleHandshake(conn *websocket.Conn) ([]byte, error) {
+func handleHandshake(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
 	_, alicePublic, err := conn.Read(context.Background())
     if err != nil {
         return nil, err
     }
 
+	version := int(alicePublic[0])
+	alicePublic = alicePublic[1:]
+
 	if len(alicePublic) != 32 {
 		return nil, errors.New("Invalid handshake pattern")
+	}
+
+	if version != t.version {
+		return nil, invalidVersionError
 	}
 
 	bobPrivate := make([]byte, 32)
@@ -76,7 +83,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
     defer conn.Close(websocket.StatusNormalClosure, "")
 
-	sessionKey, err := handleHandshake(conn)
+	sessionKey, err := handleHandshake(r.Context(), conn)
     if err != nil {
         logger.Warn(r.Context(), "Handshake error", zap.Error(err))
         return
@@ -184,13 +191,16 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-        resp, err := iaes.Encrypt(sessionKey, result)
-        if err != nil {
-            logger.Warn(r.Context(), "Encryption error", zap.Error(err))
-            continue
-        }
+		resp := []byte{}
+		if len(result) > 1 {
+			resp, err := iaes.Encrypt(sessionKey, result[1:])
+			if err != nil {
+				logger.Warn(r.Context(), "Encryption error", zap.Error(err))
+				continue
+			}
+		}
 
-        if err := conn.Write(context.Background(), websocket.MessageBinary, resp); err != nil {
+        if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{result[0]}, resp...)); err != nil {
             logger.Info(r.Context(), "Send: Error", zap.Error(err))
             return
         }

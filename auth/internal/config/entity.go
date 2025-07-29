@@ -4,6 +4,7 @@ type Config struct {
 	Postgres	PGConfig	`yaml:"POSTGRES" env:"POSTGRES"`
 	JWTKey		string		`yaml:"JWTKEY" env:"JWTKEY"`
 	Port		int			`yaml:"PORT" env:"PORT"`
+	Version		int			`yaml:"VERSION" env:"VERSION"`
 }
 
 type PGConfig struct {

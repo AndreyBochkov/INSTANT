@@ -1,45 +1,67 @@
 package transport
 
 import (
-	"chat_service/pkg/postgres"
 	"nhooyr.io/websocket"
+
+	"errors"
+	"sync"
+
+	"chat_service/pkg/postgres"
 )
 
 var (
 	tokenExpiredError = errors.New("Expired")
+	invalidVersionError = errors.New("Invalid version")
 )
+
+type SecureConn struct {
+	conn		*websocket.Conn
+	sessionKey	[]byte
+}
 
 type Transport struct {
 	pool		postgres.PGXPool
 	jwtKey		string
+	version		int
+
+	sync.Mutex
+	connmap		map[int]SecureConn
 }
 
 // =====REQUESTS SECTION=====
 
-type GetChatsRequest struct { //5
-	Token		string	`json:"token"`
-}
+// type GetChatsRequest struct { //5
+// 	Token		string	`json:"token"`
+// }
 
 type SearchRequest struct { //6
-	Token		string	`json:"token"`
 	Query		string	`json:"query"`
 }
 
 type NewChatRequest struct { //7
-	Token		string	`json:"token"`
 	User2		int		`json:"user2"`
+	Label1		string	`json:"label1"`
+	Label2		string	`json:"label2"`
 }
 
 type GetMessagesRequest struct { //8
-	Token		string	`json:"token"`
 	ChatID		int		`json:"chatid"`
 	Num			int		`json:"num"`
 	Offset		int		`json:"offset"`
 }
 
 type SendMessageRequest struct { //9
-	Token		string	`json:"token"`
+	Receiver	int		`json:"receiver"`
 	ChatID		int		`json:"chatid"`
+	Body		string	`json:"body"`
+}
+
+type RegisterTokenRequest struct { //16
+	Token		string	`json:"token"`
+}
+
+type SyncRequest struct { //http
+	Token		string	`json:"token"`
 }
 
 // =====RESPONSES SECTION=====
@@ -56,4 +78,16 @@ type NewChatResponse struct { //12
 
 type SendMessageResponse struct { //14
 	MessageID	int64	`json:"messageid"`
+	Ts			int64	`json:"ts"`
+}
+
+type GotMessageAck struct { //18
+	ChatID		int		`json:"chatid"`
+	MessageID	int64	`json:"messageid"`
+	Ts			int64	`json:"ts"`
+	Body		string	`json:"body"`
+}
+
+type SyncResponseItem struct { //http
+	Body		string	`json:"body"`
 }

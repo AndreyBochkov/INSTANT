@@ -4,7 +4,6 @@ import (
 	craes "crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"errors"
 )
 
 func Encrypt(key, plaintext []byte) ([]byte, error) {

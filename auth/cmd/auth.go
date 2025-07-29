@@ -38,7 +38,7 @@ func main() {
 	}
 
 	logger.Info(ctx, "Setting up transport layer...")
-	t := transport.New(pool, cfg.JWTKey)
+	t := transport.New(pool, cfg.JWTKey, cfg.Version)
 	mux := http.NewServeMux()
 	mux.Handle("/", transport.MiddlewareHandler(t))
 	server := &http.Server{

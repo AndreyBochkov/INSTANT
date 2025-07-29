@@ -13,7 +13,7 @@ const (
 )
 
 var (
-	serviceField = zap.String("service", "Auth_service")
+	serviceField = zap.String("service", "Chat_service")
 )
 
 type Logger struct {

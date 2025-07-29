@@ -2,12 +2,12 @@ package transport
 
 import (
 	"auth_service/pkg/postgres"
-	"nhooyr.io/websocket"
 )
 
 type Transport struct {
 	pool		postgres.PGXPool
 	jwtKey		string
+	version		int
 }
 
 type RegisterRequest struct {

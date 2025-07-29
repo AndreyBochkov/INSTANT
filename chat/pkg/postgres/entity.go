@@ -1,9 +1,5 @@
 package postgres
 
-import (
-	"time"
-)
-
 type Chat struct {
 	ChatID		int			`json:"chatid"`
 	User2		int			`json:"user2"`
@@ -18,7 +14,17 @@ type User struct {
 
 type Message struct {
 	MessageID	int64		`json:"messageid"`
-	Ts			time.Time	`json:"ts"`
+	Ts			int64		`json:"ts"`
 	Body		string		`json:"body"`
 	Mine		bool		`json:"mine"`
+}
+
+type SyncRecord struct {
+	body		string
+	sessionKey	[]byte
+}
+
+type SyncableRecord struct {
+	id			int
+	sessionKey	[]byte
 }
