@@ -18,7 +18,7 @@ services:
     container_name: INSTANT_auth_service
     build:
       context: ./auth/
-      dockerfile: Dockerfile
+      dockerfile: ./Dockerfile
     ports:
       - "51756:51756"
     networks:
@@ -31,9 +31,9 @@ services:
     container_name: INSTANT_chat_service
     build:
       context: ./chat/
-      dockerfile: Dockerfile
+      dockerfile: ./Dockerfile
     ports:
-      - "51756:51756"
+      - "51757:51757"
     networks:
       - postgres
     depends_on:

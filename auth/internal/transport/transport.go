@@ -28,7 +28,7 @@ func New(pool postgres.PGXPool, jwtKey string, version int) Transport {
 	return Transport{pool: pool, jwtKey: jwtKey, version: version}
 }
 
-func handleHandshake(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
+func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
 	_, alicePublic, err := conn.Read(context.Background())
     if err != nil {
         return nil, err
@@ -83,7 +83,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
     defer conn.Close(websocket.StatusNormalClosure, "")
 
-	sessionKey, err := handleHandshake(r.Context(), conn)
+	sessionKey, err := t.handleHandshake(r.Context(), conn)
     if err != nil {
         logger.Warn(r.Context(), "Handshake error", zap.Error(err))
         return
@@ -170,11 +170,18 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 				"iss": req.Login,
 				"sub": id,
-				"exp": time.Now().Add(3*time.Hour).Unix(),
+				"exp": time.Now().Add(48*time.Hour).Unix(),
 			}).SignedString([]byte(t.jwtKey))
 			if err != nil {
 				logger.Warn(r.Context(), "JWT error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal token error")...)
+				// ret [127, I, n, t, e, r, ...]
+				break
+			}
+
+			if err := t.pool.EditKeyByUserID(id, sessionKey); err != nil {
+				logger.Warn(r.Context(), "Postgres error", zap.Error(err))
+				result = append([]byte{127}, []byte("Internal DB error")...)
 				// ret [127, I, n, t, e, r, ...]
 				break
 			}
@@ -193,7 +200,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		resp := []byte{}
 		if len(result) > 1 {
-			resp, err := iaes.Encrypt(sessionKey, result[1:])
+			resp, err = iaes.Encrypt(sessionKey, result[1:])
 			if err != nil {
 				logger.Warn(r.Context(), "Encryption error", zap.Error(err))
 				continue

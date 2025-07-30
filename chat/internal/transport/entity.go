@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	tokenExpiredError = errors.New("Expired")
+	tokenExpiredError = errors.New("Token expired")
 	invalidVersionError = errors.New("Invalid version")
 )
 
@@ -40,8 +40,6 @@ type SearchRequest struct { //6
 
 type NewChatRequest struct { //7
 	User2		int		`json:"user2"`
-	Label1		string	`json:"label1"`
-	Label2		string	`json:"label2"`
 }
 
 type GetMessagesRequest struct { //8
@@ -61,7 +59,9 @@ type RegisterTokenRequest struct { //16
 }
 
 type SyncRequest struct { //http
-	Token		string	`json:"token"`
+	UserID		int		`json:"id"`
+	EncToken	string	`json:"enctoken"`
+	Since		int64	`json:"since"`
 }
 
 // =====RESPONSES SECTION=====
@@ -81,13 +81,13 @@ type SendMessageResponse struct { //14
 	Ts			int64	`json:"ts"`
 }
 
-type GotMessageAck struct { //18
+type GotMessageAck struct { //15
 	ChatID		int		`json:"chatid"`
 	MessageID	int64	`json:"messageid"`
 	Ts			int64	`json:"ts"`
 	Body		string	`json:"body"`
 }
 
-type SyncResponseItem struct { //http
-	Body		string	`json:"body"`
+type SyncResponse struct {
+	EncData		string	`json:"encdata"`
 }

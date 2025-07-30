@@ -73,7 +73,7 @@ func (p PGXPool) SearchUsersByQuery(query string) ([]User, error) {
 
 func (p PGXPool) InsertChat(id1, id2 int, label1, label2 string) (int, error) {
 	chatID := 0
-	err := p.pgxPool.QueryRow(context.Background(), "INSERT INTO chat_schema.users (user1, user2, label1, label2) VALUES ($1, $2, $3, $4) RETURNING chatid;", id1, id2, label1, label2).Scan(&chatID)
+	err := p.pgxPool.QueryRow(context.Background(), "INSERT INTO chat_schema.chats (user1, user2, label1, label2) VALUES ($1, $2, $3, $4) RETURNING chatid;", id1, id2, label1, label2).Scan(&chatID)
 	return chatID, err
 }
 
@@ -85,35 +85,26 @@ func (p PGXPool) GetMessageListByUserIDAndChatIDAndParams(userID, chatID, num, o
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Message])
 }
 
-func (p PGXPool) InsertMessage(userID, chatID int, body string) (int64, int64, error) {
+func (p PGXPool) InsertMessage(senderID, receiverID, chatID int, body string) (int64, int64, error) {
 	messageID := int64(0)
 	ts := int64(0)
-	err := p.pgxPool.QueryRow(context.Background(), "INSERT INTO chat_schema.messages (chatid, body, sender) VALUES ($1, $2, $3) RETURNING messageid, ts;", chatID, body, userID).Scan(&messageID, &ts)
+	err := p.pgxPool.QueryRow(context.Background(), "INSERT INTO chat_schema.messages (chatid, body, sender, receiver) VALUES ($1, $2, $3, $4) RETURNING messageid, ts;", chatID, body, senderID, receiverID).Scan(&messageID, &ts)
 	return messageID, ts, err
 }
 
-func (p PGXPool) InsertSyncRecord(id int, body string, sessionKey []byte) error {
-	_, err := p.pgxPool.Exec(context.Background(), "INSERT INTO chat_service.sync VALUES ($1, $2, $3);", id, body, sessionKey)
-	return err
-}
-
-func (p PGXPool) InsertSyncableId(id int, sessionKey []byte) error {
-	_, err := p.pgxPool.Exec(context.Background(), "INSERT INTO chat_service.syncable VALUES ($1, $2);", id, sessionKey)
-	return err
-}
-
-func (p PGXPool) GetSessionKeyBySyncableID(id int) ([]byte, error) {
+func (p PGXPool) GetKeyAndLoginByUserID(id int) ([]byte, string, error) {
 	sessionKey := []byte{}
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT sessionkey FROM chat_schema.syncable WHERE id=$1;", id).Scan(&sessionKey)
-	return sessionKey, err
+	login := ""
+	err := p.pgxPool.QueryRow(context.Background(), "SELECT sessionkey, login FROM auth_schema.users WHERE id=$1;", id).Scan(&sessionKey, &login)
+	return sessionKey, login, err
 }
 
-func (p PGXPool) GetSyncRecordsByID(id int) ([]SyncRecord, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT body, sessionkey FROM chat_schema.sync WHERE id=$1;", id)
+func (p PGXPool) GetMessagesForIDSince(receiverID int, since int64) ([]SyncMessage, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT ts, body FROM chat_schema.messages WHERE receiver=$1 AND ts>$2 ORDER BY ts DECS;", receiverID, since)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[SyncRecord])
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[SyncMessage])
 }
 
 // =====
@@ -122,6 +113,12 @@ func (p PGXPool) VerifyLoginAndID(login string, id int) bool {
 	dbid := 0
 	err := p.pgxPool.QueryRow(context.Background(), "SELECT id FROM auth_schema.users WHERE login=$1;", login).Scan(&dbid)
 	return err == nil && id == dbid
+}
+
+func (p PGXPool) GetNameByUserID(id int) (string, error) {
+	name := ""
+	err := p.pgxPool.QueryRow(context.Background(), "SELECT name FROM auth_schema.users WHERE id=$1;", id).Scan(&name)
+	return name, err
 }
 
 func (p PGXPool) Close() {

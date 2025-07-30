@@ -34,7 +34,7 @@ func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) ([
     }
 
 	version := int(alicePublic[0])
-	alicePublic := alicePublic[1:]
+	alicePublic = alicePublic[1:]
 
 	if len(alicePublic) != 32 {
 		return nil, errors.New("Invalid handshake pattern")
@@ -92,7 +92,7 @@ func (t Transport) disconnect(id int) {
 	t.Unlock()
 }
 
-func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (t Transport) StartWSHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 		OriginPatterns: []string{"*"},
@@ -106,7 +106,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sessionKey, err := t.handleHandshake(r.Context(), conn)
     if err != nil {
 		if errors.Is(err, invalidVersionError) {
-			conn.Write(context.Background(), websocket.MessageBinary, []byte{15})
+			conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Invalid version")...))
 			return
 		}
         logger.Warn(r.Context(), "Handshake error", zap.Error(err))
@@ -135,11 +135,6 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				result = append([]byte{127}, []byte("Unauthorized")...)
 				// ret [127, U, n, a, u, ...]
 				break
-			}
-			var req GetChatsRequest
-			if err := json.Unmarshal(payload, &req); err != nil {
-				logger.Warn(r.Context(), "JSON decoder error", zap.Error(err))
-				return
 			}
 
 			chats, err := t.pool.GetChatListByID(peerID)
@@ -204,7 +199,21 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			chatID, err := t.pool.InsertChat(peerID, req.User2, req.Label1, req.Label2)
+			label1, err := t.pool.GetNameByUserID(req.User2)
+			if err != nil {
+				result = append([]byte{127}, []byte("Internal DB error")...)
+				// ret [127, I, n, t, e, r, ...]
+				break
+			}
+			
+			label2, err := t.pool.GetNameByUserID(peerID)
+			if err != nil {
+				result = append([]byte{127}, []byte("Internal DB error")...)
+				// ret [127, I, n, t, e, r, ...]
+				break
+			}
+
+			chatID, err := t.pool.InsertChat(peerID, req.User2, label1, label2)
 			if err != nil {
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				// ret [127, I, n, t, e, r, ...]
@@ -261,7 +270,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			messageID, ts, err := t.pool.InsertMessage(peerID, req.ChatID, req.Body)
+			messageID, ts, err := t.pool.InsertMessage(peerID, req.Receiver, req.ChatID, req.Body)
 			if err != nil {
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				// ret [127, I, n, t, e, r, ...]
@@ -276,29 +285,18 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			result = append([]byte{14}, jsonbytes...)
 
 			receiverConn, connected := t.connmap[req.Receiver]
-			if connected {
-				jsonbytes, err := json.Marshal(GotMessageAck{req.ChatID, messageID, ts, req.Body})
-				if err != nil {
-					logger.Warn(r.Context(), "JSON encoder error", zap.Error(err))
-					return
-				}
-				enc, err := iaes.Encrypt(receiverConn.sessionKey, jsonbytes)
-				if err != nil {
-					logger.Warn(r.Context(), "Encryption error", zap.Error(err))
-					break
-				}
-				receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{18}, enc...))
-				break
-			}
-			receiverSessionKey, err := t.pool.GetSessionKeyBySyncableID(req.Receiver)
+			if !connected {break}
+			jsonbytes, err = json.Marshal(GotMessageAck{req.ChatID, messageID, ts, req.Body})
 			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					break
-				}
-				logger.Warn(r.Context(), "Postgres error", zap.Error(err))
+				logger.Warn(r.Context(), "JSON encoder error", zap.Error(err))
+				return
+			}
+			enc, err := iaes.Encrypt(receiverConn.sessionKey, jsonbytes)
+			if err != nil {
+				logger.Warn(r.Context(), "Encryption error", zap.Error(err))
 				break
 			}
-			t.pool.InsertSyncRecord(req.Receiver, /* TODO: sync record body */, receiverSessionKey)
+			receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{15}, enc...))
 			break
 		case 16:
 			var req RegisterTokenRequest
@@ -326,11 +324,11 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			t.Lock()
 			t.connmap[id] = SecureConn{conn, sessionKey}
 			t.Unlock()
-			logger.Info(r.Context, "Connected", zap.Int("id", id))
+			logger.Info(r.Context(), "Connected", zap.Int("id", id))
 			peerID = id
 			defer func() {
-				t.disconnect(id)
-				logger.Info(r.Context, "Disconnected", zap.Int("id", id))
+				t.disconnect(peerID)
+				logger.Info(r.Context(), "Disconnected", zap.Int("id", peerID))
 			}()
 			result = []byte{17}
 			// ret [17]
@@ -352,6 +350,87 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{result[0]}, resp...)); err != nil {
             return
         }
+	}
+}
+
+func (t Transport) SyncRequestHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req SyncRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		logger.Warn(r.Context(), "JSON decoding error", zap.Error(err))
+		http.Error(w, "Invalid credentials", http.StatusBadRequest)
+		return
+	}
+
+	sessionKey, dblogin, err := t.pool.GetKeyAndLoginByUserID(req.UserID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Invalid credentials", http.StatusBadRequest)
+			return
+		}
+		logger.Warn(r.Context(), "Postgres error", zap.Error(err))
+		http.Error(w, "Internal DB error", http.StatusInternalServerError)
+		return
+	}
+
+	token, err := iaes.Decrypt(sessionKey, []byte(req.EncToken))
+	if err != nil {
+		logger.Warn(r.Context(), "InstAES error", zap.Error(err))
+		http.Error(w, "Decryption error", http.StatusInternalServerError)
+		return
+	}
+
+	id, login, err := t.parseToken(string(token))
+	if err != nil {
+		if errors.Is(err, tokenExpiredError) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		logger.Warn(r.Context(), "Token error", zap.Error(err))
+		http.Error(w, "Internal token error", http.StatusInternalServerError)
+		return
+	}
+	if login != dblogin || id != req.UserID {
+		http.Error(w, "Invalid credentials", http.StatusBadRequest)
+		return
+	}
+
+	var result []byte
+
+	syncMessages, err := t.pool.GetMessagesForIDSince(id, req.Since)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			logger.Warn(r.Context(), "Postgres error", zap.Error(err))
+			http.Error(w, "Internal DB error", http.StatusInternalServerError)
+			return
+		}
+		result = []byte{0}
+	} else {
+		result, err = json.Marshal(syncMessages)
+		if err != nil {
+			logger.Warn(r.Context(), "JSON encoding error", zap.Error(err))
+			http.Error(w, "Internal JSON error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	resp, err := iaes.Encrypt(sessionKey, result)
+	if err != nil {
+		logger.Warn(r.Context(), "InstAES error", zap.Error(err))
+		http.Error(w, "Encryption error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(SyncResponse{string(resp)}); err != nil {
+		logger.Warn(r.Context(), "Error in JSON encoder", zap.Error(err))
+		http.Error(w, "Internal JSON error", http.StatusInternalServerError)
+		return
 	}
 }
 

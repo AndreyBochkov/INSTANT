@@ -8,11 +8,5 @@ build: $(SOURCES)
 run:
 	./build/chat
 
-docker-up:
-	sudo docker compose -f ./../docker-compose.yml up
-
-docker-rebuild:
-	sudo docker compose -f ./../docker-compose.yml up --build
-
 pg-up:
 	sudo docker compose -f ./../pg-compose.yml up

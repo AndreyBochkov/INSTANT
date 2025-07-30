@@ -19,12 +19,7 @@ type Message struct {
 	Mine		bool		`json:"mine"`
 }
 
-type SyncRecord struct {
-	body		string
-	sessionKey	[]byte
-}
-
-type SyncableRecord struct {
-	id			int
-	sessionKey	[]byte
+type SyncMessage struct {
+	Ts			int64		`json:"ts"`
+	Body		string		`json:"body"`
 }

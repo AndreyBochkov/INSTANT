@@ -2,6 +2,11 @@ package transport
 
 import (
 	"auth_service/pkg/postgres"
+	"errors"
+)
+
+var (
+	invalidVersionError = errors.New("Invalid version")
 )
 
 type Transport struct {
