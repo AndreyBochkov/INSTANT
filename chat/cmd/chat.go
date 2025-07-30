@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"errors"
 	"time"
+	"syscall"
 
 	"go.uber.org/zap"
 
@@ -54,7 +55,7 @@ func main()  {
 	}()
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	logger.Info(ctx, "Ready for graceful shutdown. Press CTRL+C to execute.")
 	<-quit
 	logger.Info(ctx, "Gracefully shutting down...")
