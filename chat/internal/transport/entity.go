@@ -58,11 +58,11 @@ type RegisterTokenRequest struct { //16
 	Token		string	`json:"token"`
 }
 
-type SyncRequest struct { //http
-	UserID		int		`json:"id"`
-	EncToken	string	`json:"enctoken"`
-	Since		int64	`json:"since"`
-}
+// type SyncRequest struct { //http
+// 	UserID		int		`json:"id"`
+// 	EncToken	string	`json:"enctoken"`
+// 	Since		int64	`json:"since"`
+// }
 
 // =====RESPONSES SECTION=====
 
@@ -88,6 +88,6 @@ type GotMessageAck struct { //15
 	Body		string	`json:"body"`
 }
 
-type SyncResponse struct {
-	EncData		string	`json:"encdata"`
-}
+// type SyncResponse struct {
+// 	EncData		string	`json:"encdata"`
+// }

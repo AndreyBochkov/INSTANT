@@ -41,8 +41,8 @@ func main()  {
 	logger.Info(ctx, "Setting up transport layer...")
 	t := transport.New(pool, cfg.JWTKey, cfg.Version)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", t.StartWSHandler)
-	mux.HandleFunc("/sync/", t.SyncRequestHandler)
+	mux.HandleFunc("/chat/", t.ChatWSHandler)
+	mux.HandleFunc("/sync/", t.SyncWSHandler)
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port), // TODO: not localhost
 		Handler: transport.MiddlewareHandler(mux),

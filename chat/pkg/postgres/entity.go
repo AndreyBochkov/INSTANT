@@ -19,7 +19,7 @@ type Message struct {
 	Mine		bool		`json:"mine"`
 }
 
-type SyncMessage struct {
-	Ts			int64		`json:"ts"`
-	Body		string		`json:"body"`
-}
+// type SyncMessage struct {
+// 	Ts			int64		`json:"ts"`
+// 	Body		string		`json:"body"`
+// }

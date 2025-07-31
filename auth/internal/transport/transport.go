@@ -30,9 +30,9 @@ func New(pool postgres.PGXPool, jwtKey string, version int) Transport {
 
 func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
 	_, alicePublic, err := conn.Read(context.Background())
-    if err != nil {
-        return nil, err
-    }
+	if err != nil {
+		return nil, err
+	}
 
 	version := int(alicePublic[0])
 	alicePublic = alicePublic[1:]
@@ -63,42 +63,44 @@ func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) ([
 	sessionKey := make([]byte, 32)
 	hkdf.New(sha256.New, sharedPre, serverRandom, nil).Read(sessionKey)
 
-    if err := conn.Write(context.Background(), websocket.MessageBinary, append(append(append([]byte{0}, bobPublic...), serverRandom...), []byte(ctx.Value(logger.RequestIDKey).(string))...)); err != nil {
-        return nil, err
-    }
+	if err := conn.Write(context.Background(), websocket.MessageBinary, append(append(append([]byte{0}, bobPublic...), serverRandom...), []byte(ctx.Value(logger.RequestIDKey).(string))...)); err != nil {
+		return nil, err
+	}
 
 	// ret [0, B, K, ..., E, Y, R, A, ..., N, D, R, E, Q, ..., I, D]
 
-    return sessionKey, nil
+	return sessionKey, nil
 }
 
 func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 		OriginPatterns: []string{"*"},
 	})
-    if err != nil {
-		logger.Warn(r.Context(), "Protocol upgrading error", zap.Error(err))
+	if err != nil {
+		logger.Warn(ctx, "Protocol upgrading error", zap.Error(err))
 		return
 	}
-    defer conn.Close(websocket.StatusNormalClosure, "")
+	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	sessionKey, err := t.handleHandshake(r.Context(), conn)
-    if err != nil {
-        logger.Warn(r.Context(), "Handshake error", zap.Error(err))
-        return
-    }
+	sessionKey, err := t.handleHandshake(ctx, conn)
+	if err != nil {
+		logger.Warn(ctx, "Handshake error", zap.Error(err))
+		return
+	}
 
-    for {
-        _, enc, err := conn.Read(context.Background())
-        if err != nil {
-			logger.Info(r.Context(), "Receive: Error", zap.Error(err))
-            return
-        }
+	for {
+		_, enc, err := conn.Read(context.Background())
+		if err != nil {
+			logger.Info(ctx, "Receive: Error", zap.Error(err))
+			return
+		}
 
 		payload, err := iaes.Decrypt(sessionKey, enc)
 		if err != nil {
-			logger.Warn(r.Context(), "InstAES decoding error", zap.Error(err))
+			logger.Warn(ctx, "InstAES decoding error", zap.Error(err))
 			continue
 		}
 
@@ -108,7 +110,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case 1:
 			var req RegisterRequest
 			if err := json.Unmarshal(payload, &req); err != nil {
-				logger.Warn(r.Context(), "JSON decoder error", zap.Error(err))
+				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
 				return
 			}
 			if req.Login == "" || req.Password == "" {
@@ -119,7 +121,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 			if err != nil {
-				logger.Warn(r.Context(), "Bcrypt error", zap.Error(err))
+				logger.Warn(ctx, "Bcrypt error", zap.Error(err))
 				result = append([]byte{127}, []byte("Pass encryption error")...)
 				// ret [127, P, a, s, s, ...]
 				break
@@ -132,7 +134,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					// ret [127, D, u, p, l, i, ...]
 					break
 				}
-				logger.Warn(r.Context(), "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				// ret [127, I, n, t, e, r, ...]
 				break
@@ -143,7 +145,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case 2:
 			var req LoginRequest
 			if err := json.Unmarshal(payload, &req); err != nil {
-				logger.Warn(r.Context(), "JSON decoder error", zap.Error(err))
+				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
 				return
 			}
 
@@ -154,7 +156,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					// ret [127, I, n, v, a, l, ...]
 					break
 				} else {
-					logger.Warn(r.Context(), "Postgres error", zap.Error(err))
+					logger.Warn(ctx, "Postgres error", zap.Error(err))
 					result = append([]byte{127}, []byte("Internal DB error")...)
 					// ret [127, I, n, t, e, r, ...]
 					break
@@ -173,28 +175,21 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"exp": time.Now().Add(48*time.Hour).Unix(),
 			}).SignedString([]byte(t.jwtKey))
 			if err != nil {
-				logger.Warn(r.Context(), "JWT error", zap.Error(err))
+				logger.Warn(ctx, "JWT error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal token error")...)
-				// ret [127, I, n, t, e, r, ...]
-				break
-			}
-
-			if err := t.pool.EditKeyByUserID(id, sessionKey); err != nil {
-				logger.Warn(r.Context(), "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
 				// ret [127, I, n, t, e, r, ...]
 				break
 			}
 
 			jsonbytes, err := json.Marshal(LoginResponse{Name: name, Token: token})
 			if err != nil {
-				logger.Warn(r.Context(), "JSON encoder error", zap.Error(err))
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
 				return
 			}
 			result = append([]byte{4}, jsonbytes...)
 			break
 		default:
-			logger.Warn(r.Context(), "Invalid payload: " + string(enc) + string(payload))
+			logger.Warn(ctx, "Invalid payload: " + string(enc) + string(payload))
 			return
 		}
 
@@ -202,16 +197,16 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(result) > 1 {
 			resp, err = iaes.Encrypt(sessionKey, result[1:])
 			if err != nil {
-				logger.Warn(r.Context(), "Encryption error", zap.Error(err))
+				logger.Warn(ctx, "Encryption error", zap.Error(err))
 				continue
 			}
 		}
 
-        if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{result[0]}, resp...)); err != nil {
-            logger.Info(r.Context(), "Send: Error", zap.Error(err))
-            return
-        }
-    }
+		if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{result[0]}, resp...)); err != nil {
+			logger.Info(ctx, "Send: Error", zap.Error(err))
+			return
+		}
+	}
 }
 
 func MiddlewareHandler(next http.Handler) http.Handler {

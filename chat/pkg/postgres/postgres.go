@@ -92,20 +92,20 @@ func (p PGXPool) InsertMessage(senderID, receiverID, chatID int, body string) (i
 	return messageID, ts, err
 }
 
-func (p PGXPool) GetKeyAndLoginByUserID(id int) ([]byte, string, error) {
-	sessionKey := []byte{}
-	login := ""
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT sessionkey, login FROM auth_schema.users WHERE id=$1;", id).Scan(&sessionKey, &login)
-	return sessionKey, login, err
-}
+// func (p PGXPool) GetKeyAndLoginByUserID(id int) ([]byte, string, error) {
+// 	sessionKey := []byte{}
+// 	login := ""
+// 	err := p.pgxPool.QueryRow(context.Background(), "SELECT sessionkey, login FROM auth_schema.users WHERE id=$1;", id).Scan(&sessionKey, &login)
+// 	return sessionKey, login, err
+// }
 
-func (p PGXPool) GetMessagesForIDSince(receiverID int, since int64) ([]SyncMessage, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT ts, body FROM chat_schema.messages WHERE receiver=$1 AND ts>$2 ORDER BY ts DECS;", receiverID, since)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[SyncMessage])
-}
+// func (p PGXPool) GetMessagesForIDSince(receiverID int, since int64) ([]SyncMessage, error) {
+// 	rows, err := p.pgxPool.Query(context.Background(), "SELECT ts, body FROM chat_schema.messages WHERE receiver=$1 AND ts>$2 ORDER BY ts DECS;", receiverID, since)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return pgx.CollectRows(rows, pgx.RowToStructByPos[SyncMessage])
+// }
 
 // =====
 

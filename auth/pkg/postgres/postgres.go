@@ -65,11 +65,6 @@ func (p PGXPool) GetIDAndNameAndPasswordByLogin(login string) (int, string, stri
 	return id, name, password, err
 }
 
-func (p PGXPool) EditKeyByUserID(id int, sessionKey []byte) error {
-	_, err := p.pgxPool.Exec(context.Background(), "UPDATE auth_schema.users SET sessionkey=$1 WHERE id=$2;", sessionKey, id)
-	return err
-}
-
 func (p PGXPool) Close() {
 	p.pgxPool.Close()
 }
