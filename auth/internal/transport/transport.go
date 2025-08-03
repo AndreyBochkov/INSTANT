@@ -77,7 +77,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
-		OriginPatterns: []string{"*"},
+		OriginPatterns: []string{"none"},
 	})
 	if err != nil {
 		logger.Warn(ctx, "Protocol upgrading error", zap.Error(err))

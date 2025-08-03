@@ -11,37 +11,52 @@ services:
     ports:
       - "5432:5432"
     networks:
-      - postgres
+      - instant
     restart: unless-stopped
 
   auth_service:
     container_name: INSTANT_auth_service
-    build:
-      context: ./auth/
-      dockerfile: ./Dockerfile
+    build: ./auth/
     ports:
       - "51756:51756"
     networks:
-      - postgres
+      - instant
     depends_on:
       - postgres
     restart: no
   
   chat_service:
     container_name: INSTANT_chat_service
-    build:
-      context: ./chat/
-      dockerfile: ./Dockerfile
+    build: ./chat/
     ports:
       - "51757:51757"
     networks:
-      - postgres
+      - instant
     depends_on:
       - postgres
     restart: no
 
+  nginx:
+    container_name: INSTANT_nginx
+    image: nginx
+    depends_on:
+      - chat_service
+      - auth_service
+    ports:
+      - 80:80
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./website/:/usr/share/nginx/html
+    networks:
+      - instant
+      - exposed
+    restart: no
+
 networks:
-  postgres:
+  instant:
+    driver: bridge
+    internal: true
+  exposed:
     driver: bridge
 
 volumes:
