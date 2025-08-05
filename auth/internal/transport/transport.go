@@ -87,6 +87,10 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	sessionKey, err := t.handleHandshake(ctx, conn)
 	if err != nil {
+		if errors.Is(err, invalidVersionError) {
+			conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Invalid version")...))
+			return
+		}
 		logger.Warn(ctx, "Handshake error", zap.Error(err))
 		return
 	}

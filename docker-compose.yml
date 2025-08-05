@@ -13,6 +13,11 @@ services:
     networks:
       - instant
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   auth_service:
     container_name: INSTANT_auth_service
@@ -22,7 +27,8 @@ services:
     networks:
       - instant
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     restart: no
   
   chat_service:
@@ -33,7 +39,8 @@ services:
     networks:
       - instant
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     restart: no
 
   nginx:
@@ -49,14 +56,10 @@ services:
       - ./website/:/usr/share/nginx/html
     networks:
       - instant
-      - exposed
-    restart: no
+    restart: on-failure
 
 networks:
   instant:
-    driver: bridge
-    internal: true
-  exposed:
     driver: bridge
 
 volumes:

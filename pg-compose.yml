@@ -11,11 +11,11 @@ services:
     ports:
       - "5432:5432"
     networks:
-      - postgres
+      - instant
     restart: unless-stopped
 
 networks:
-  postgres:
+  instant:
     driver: bridge
 
 volumes:
