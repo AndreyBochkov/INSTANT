@@ -37,7 +37,7 @@ services:
     depends_on:
       - instant_service
     ports:
-      - 8080:8080
+      - 51757:51757
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
       - ./website/:/usr/share/nginx/html
