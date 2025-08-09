@@ -4,23 +4,16 @@ import (
 	"context"
 	"net/http"
 	"encoding/json"
-	"crypto/rand"
-	"time"
-	"crypto/sha256"
 	"strings"
 	"errors"
 
 	"nhooyr.io/websocket"
 	"go.uber.org/zap"
-	"golang.org/x/crypto/curve25519"
-	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/bcrypt"
 	"github.com/jackc/pgx/v5"
-	"github.com/google/uuid"
 
 	"instant_service/pkg/logger"
 	iaes "instant_service/pkg/aes"
-	"instant_service/pkg/postgres"
 )
 
 func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -111,10 +104,9 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					result = []byte{124} // invalid login
 					break
 				}
-				lgger.Warn(ctx, "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
-				}
 			}
 
 			if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
@@ -125,7 +117,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			jsonbytes, err := json.Marshal(LoginResponse{Name: name})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				result := append([]byte{127}, []byte("Internal JSON error")...)
+				result = append([]byte{127}, []byte("Internal JSON error")...)
 				break
 			}
 
@@ -155,7 +147,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					result = append([]byte{10}, []byte("[]")...)
 					break
 				}
-				lgger.Warn(ctx, "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
@@ -187,7 +179,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					result = append([]byte{11}, []byte("[]")...)
 					break
 				}
-				lgger.Warn(ctx, "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
@@ -215,21 +207,21 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			label1, err := t.pool.GetNameByUserID(req.User2)
 			if err != nil {
-				lgger.Warn(ctx, "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
 			
 			label2, err := t.pool.GetNameByUserID(peerID)
 			if err != nil {
-				lgger.Warn(ctx, "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
 
 			chatID, err := t.pool.InsertChat(peerID, req.User2, label1, label2)
 			if err != nil {
-				lgger.Warn(ctx, "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
@@ -261,7 +253,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					result = append([]byte{13}, []byte("[]")...)
 					break
 				}
-				lgger.Warn(ctx, "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
@@ -287,7 +279,7 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			messageID, ts, err := t.pool.InsertMessage(peerID, req.Receiver, req.ChatID, req.Body)
 			if err != nil {
-				lgger.Warn(ctx, "Postgres error", zap.Error(err))
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
@@ -311,43 +303,31 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				logger.Warn(ctx, "Encryption error", zap.Error(err))
 				break
 			}
-			receiverConn.Write(context.Background(), websocket.MessageBinary, append([]byte{15}, enc...))
+			receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{15}, enc...))
 			break
 		default:
 			logger.Warn(ctx, "Invalid message type. Payload: " + string(payload), zap.Int("invalidMessageType", int(enc[0])))
 			return
-	}
+		}
 
-	if len(result) > 1 {
-		if result[0] > 100 {
-			conn.Write(context.Background(), websocket.MessageBinary, result)
-			if result[0] == 127 {
-				return
-			}
-		} else {
-			resp, err = iaes.Encrypt(sessionKey, result[1:])
-			if err != nil {
-				logger.Warn(ctx, "Encryption error", zap.Error(err))
-				result := append([]byte{127}, []byte("Internal AES error")...)
-				break
-			}
-			if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{result[0]}, resp...)); err != nil {
-				logger.Info(ctx, "Send: Error", zap.Error(err))
-				return
+		if len(result) > 1 {
+			if result[0] > 100 {
+				conn.Write(context.Background(), websocket.MessageBinary, result)
+				if result[0] == 127 {
+					return
+				}
+			} else {
+				resp, err := iaes.Encrypt(sessionKey, result[1:])
+				if err != nil {
+					logger.Warn(ctx, "Encryption error", zap.Error(err))
+					conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
+					return
+				}
+				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{result[0]}, resp...)); err != nil {
+					logger.Info(ctx, "Send: Error", zap.Error(err))
+					return
+				}
 			}
 		}
 	}
-}
-
-func MiddlewareHandler(next http.Handler) http.Handler {
-	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
-		guid := uuid.New().String()
-		ctx, err := logger.New(r.Context())
-		if err == nil {
-			ctx = context.WithValue(ctx, logger.RequestIDKey, guid)
-			logger.Info(ctx, "Initiating connection")
-			r = r.WithContext(ctx)
-			next.ServeHTTP(w, r)
-		}
-	})
 }

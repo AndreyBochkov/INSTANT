@@ -6,7 +6,7 @@ import (
 	"errors"
 	"sync"
 
-	"chat_service/pkg/postgres"
+	"instant_service/pkg/postgres"
 )
 
 var (

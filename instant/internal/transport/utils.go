@@ -4,18 +4,16 @@ import (
 	"context"
 	"net/http"
 	"crypto/rand"
-	"time"
 	"crypto/sha256"
 	"errors"
-	"strconv"
 
 	"nhooyr.io/websocket"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/hkdf"
 	"github.com/google/uuid"
 
-	"chat_service/pkg/logger"
-	"chat_service/pkg/postgres"
+	"instant_service/pkg/logger"
+	"instant_service/pkg/postgres"
 )
 
 func New(pool postgres.PGXPool, jwtKey string, version int) Transport {
