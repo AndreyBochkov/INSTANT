@@ -48,6 +48,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	peerID := -1
+	rotationTs := time.Now().Unix()
 
 	for {
 		_, enc, err := conn.Read(context.Background())
@@ -67,6 +68,11 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 
 		switch enc[0] {
 		case 1:
+			if peerID != -1 {
+				logger.Warn(ctx, "Register while authorized")
+				result = append([]byte{127}, []byte("Authorized already")...)
+				break
+			}
 			var req RegisterRequest
 			if err := json.Unmarshal(payload, &req); err != nil {
 				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
@@ -98,6 +104,11 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 			result = []byte{3}
 			break
 		case 2:
+			if peerID != -1 {
+				logger.Warn(ctx, "Login while authorized")
+				result = append([]byte{127}, []byte("Authorized already")...)
+				break
+			}
 			var req LoginRequest
 			if err := json.Unmarshal(payload, &req); err != nil {
 				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
@@ -323,6 +334,46 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{15}, enc...))
 			break
+		case 16:
+			if peerID < 0 {
+				logger.Info(ctx, "Requesting while unauthorized")
+				result = append([]byte{127}, []byte("Unauthorized")...)
+				break
+			}
+			var req ChangePasswordRequest
+			if err := json.Unmarshal(payload, &req); err != nil {
+				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
+				return
+			}
+
+			passwordHash, err := t.pool.GetPasswordByID(peerID)
+			if err != nil {
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				result = append([]byte{127}, []byte("Internal DB error")...)
+				break
+			}
+
+			if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Old)) != nil {
+				result = []byte{124} // invalid old password
+				break
+			}
+
+			newPasswordHash, err := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
+			if err != nil {
+				logger.Warn(ctx, "Bcrypt error", zap.Error(err))
+				result = append([]byte{127}, []byte("Internal bcrypt error")...)
+				break
+			}
+
+			err := t.pool.UpdatePasswordByID(peerID, newPasswordHash)
+			if err != nil {
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				result = append([]byte{127}, []byte("Internal DB error")...)
+				break
+			}
+
+			result = []byte{17}
+			break
 		default:
 			logger.Warn(ctx, "Invalid message type. Payload: " + string(payload), zap.Int("invalidMessageType", int(enc[0])))
 			return
@@ -342,9 +393,25 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{result[0]}, resp...)); err != nil {
-					logger.Info(ctx, "Send: Error", zap.Error(err))
+					logger.Warn(ctx, "Send: Error", zap.Error(err))
 					return
 				}
+			}
+		}
+
+		if peerID != -1 {
+			now := time.Now().Unix()
+			if (now-rotationTs) > t.rotationInterval {
+				serverRandom := make([]byte, 32)
+				rand.Read(serverRandom)
+
+				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{18}, serverRandom)); err != nil {
+					logger.Warn(ctx, "RotateKeys: Send: Error", zap.Error(err))
+					return
+				}
+
+				hkdf.New(sha256.New, serverRandom, sessionKey, nil).Read(sessionKey)
+				rotationTs = now
 			}
 		}
 	}

@@ -16,8 +16,8 @@ import (
 	"instant_service/pkg/postgres"
 )
 
-func New(pool postgres.PGXPool, jwtKey string, version int) Transport {
-	return Transport{pool: pool, jwtKey: jwtKey, version: version}
+func New(pool postgres.PGXPool, jwtKey string, version int, rotationInterval int) Transport {
+	return Transport{pool: pool, jwtKey: jwtKey, version: version, rotationInterval: rotationInterval}
 }
 
 func (t Transport) parsePayload(payload []byte) ([]byte, []byte, error) {

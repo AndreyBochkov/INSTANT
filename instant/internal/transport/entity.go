@@ -22,12 +22,13 @@ type SecureConn struct {
 }
 
 type Transport struct {
-	pool		postgres.PGXPool
-	jwtKey		string
-	version		int
+	pool				postgres.PGXPool
+	jwtKey				string
+	version				int
+	rotationInterval	int
 
 	sync.Mutex
-	connmap		map[int]SecureConn
+	connmap				map[int]SecureConn
 }
 
 type RegisterRequest struct {
@@ -77,6 +78,11 @@ type SyncRequest struct { //http
 	After		int64	`json:"after"`
 }
 
+type ChangePasswordRequest struct { //16
+	Old			string	`json:"old"`
+	New			string	`json:"new"`
+}
+
 // =====RESPONSES SECTION=====
 
 // type GetChatsResponse []postgres.Chat //10
@@ -101,7 +107,10 @@ type GotMessageAck struct { //15
 	Body		string	`json:"body"`
 }
 
-// type SyncResponse struct {
+// type SyncResponse struct { //http
 // 	Handshake	[]byte	`json:"handshake"`
 // 	Messages	[]byte	`json:"messages"`
+// }
+
+// type ChangePasswordResponse struct { //17
 // }

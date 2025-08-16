@@ -1,10 +1,11 @@
 package config
 
 type Config struct {
-	Postgres	PGConfig	`yaml:"POSTGRES" env:"POSTGRES"`
-	JWTKey		string		`yaml:"JWTKEY" env:"JWTKEY"`
-	Port		int			`yaml:"PORT" env:"PORT"`
-	Version		int			`yaml:"VERSION" env:"VERSION"`
+	Postgres			PGConfig	`yaml:"POSTGRES" env:"POSTGRES"`
+	JWTKey				string		`yaml:"JWTKEY" env:"JWTKEY"`
+	Port				int			`yaml:"PORT" env:"PORT"`
+	Version				int			`yaml:"VERSION" env:"VERSION"`
+	RotationInterval	int			`yaml:"ROTATIONINTERVAL" env:"ROTATIONINTERVAL"`
 }
 
 type PGConfig struct {

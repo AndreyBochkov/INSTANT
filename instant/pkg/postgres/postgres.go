@@ -113,6 +113,17 @@ func (p PGXPool) InsertMessage(senderID, receiverID, chatID int, body string) (i
 	return messageID, ts, err
 }
 
+func (p PGXPool) GetPasswordByID(userid int) (string, error) {
+	password := ""
+	err := p.pgxPool.QueryRow(context.Background(), "SELECT password FROM auth_schema.users WHERE id=$1;", userid).Scan(&password)
+	return password, err
+}
+
+func (p PGXPool) UpdatePasswordByID(userid int, password string) error {
+	_, err := p.pgxPool.Exec(context.Background(), "UPDATE auth_schema.users SET password=$2 WHERE id=$1;", userid, password)
+	return err
+}
+
 // =====
 
 func (p PGXPool) VerifyLoginAndID(login string, id int) bool {
