@@ -365,7 +365,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			err := t.pool.UpdatePasswordByID(peerID, newPasswordHash)
+			err = t.pool.UpdatePasswordByID(peerID, string(newPasswordHash))
 			if err != nil {
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
@@ -401,11 +401,11 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 
 		if peerID != -1 {
 			now := time.Now().Unix()
-			if (now-rotationTs) > t.rotationInterval {
+			if int(now-rotationTs) > t.rotationInterval {
 				serverRandom := make([]byte, 32)
 				rand.Read(serverRandom)
 
-				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{18}, serverRandom)); err != nil {
+				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{18}, serverRandom...)); err != nil {
 					logger.Warn(ctx, "RotateKeys: Send: Error", zap.Error(err))
 					return
 				}
