@@ -6,17 +6,24 @@ import (
 	"encoding/json"
 	"strings"
 	"errors"
+	"strconv"
+	"time"
+	"crypto/rand"
+	"crypto/sha256"
+	"fmt"
 
 	"nhooyr.io/websocket"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"github.com/jackc/pgx/v5"
+	jwt "github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/hkdf"
 
 	"instant_service/pkg/logger"
 	iaes "instant_service/pkg/aes"
 )
 
-func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -114,7 +121,18 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			jsonbytes, err := json.Marshal(LoginResponse{Name: name})
+			token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+				"sub":	id,
+				"iss":	"instant",
+				"exp":	time.Now().Add(48*time.Hour),
+			}).SignedString(t.jwtKey)
+			if err != nil {
+				logger.Warn(ctx, "JWT error", zap.Error(err))
+				result = append([]byte{127}, []byte("Internal error")...)
+				break
+			}
+
+			jsonbytes, err := json.Marshal(LoginResponse{Name: name, Token: token})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal JSON error")...)
@@ -330,4 +348,104 @@ func (t Transport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (t Transport) SyncHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Bad method", http.StatusBadRequest)
+		return
+	}
+
+	tokenString := r.Header.Get("Authorization")
+	if tokenString == "" {
+		http.Error(w, "Unauthorized", http.StatusBadRequest)
+		return
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return t.jwtKey, nil
+	})
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusBadRequest)
+		return
+	}
+	if !token.Valid {
+		http.Error(w, "Unauthorized", http.StatusBadRequest)
+		return
+	}
+
+	iss, err := token.Claims.GetIssuer()
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusBadRequest)
+		return
+	}
+	if iss != "instant" {
+		http.Error(w, "Unauthorized", http.StatusBadRequest)
+		return
+	}
+
+	exp, err := token.Claims.GetExpirationTime()
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusBadRequest)
+		return
+	}
+	if exp.Before(time.Now()) {
+		http.Error(w, "Expired", http.StatusBadRequest)
+		return
+	}
+
+	sub, err := token.Claims.GetSubject()
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.Atoi(sub)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusBadRequest)
+		return
+	}
+
+	var req SyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Warn(r.Context(), "Error in JSON decoder", zap.Error(err))
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	bobPublic, sharedPre, err := t.parsePayload(req.Handshake)
+	if err != nil {
+		logger.Warn(r.Context(), "Handshake error", zap.Error(err))
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	messages, err := t.pool.GetSyncMessageListByReceiverIDAndAfter(id, req.After)
+	if err != nil {
+		logger.Warn(r.Context(), "Postgres error", zap.Error(err))
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	serverRandom := make([]byte, 32)
+	rand.Read(serverRandom)
+
+	sessionKey := make([]byte, 32)
+	hkdf.New(sha256.New, sharedPre, serverRandom, nil).Read(sessionKey)
+
+	jsonbytes, err := json.Marshal(messages)
+	if err != nil {
+		logger.Warn(r.Context(), "JSON encoder error", zap.Error(err))
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	enc, err := iaes.Encrypt(sessionKey, jsonbytes)
+	if err != nil {
+		logger.Warn(r.Context(), "INSTAES error", zap.Error(err))
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, string(append(append(bobPublic, serverRandom...), enc...)))
 }

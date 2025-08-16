@@ -18,3 +18,10 @@ type Message struct {
 	Body		string		`json:"body"`
 	Mine		bool		`json:"mine"`
 }
+
+type SyncMessage struct {
+	MessageID	int64		`json:"messageid"`
+	Ts			int64		`json:"ts"`
+	Body		string		`json:"body"`
+	ChatID		int			`json:"chatid"`
+}

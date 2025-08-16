@@ -10,8 +10,10 @@ import (
 )
 
 var (
+	handshakeFault = errors.New("Invalid handshake pattern")
 	tokenExpiredError = errors.New("Token expired")
 	invalidVersionError = errors.New("Invalid version")
+	verificationError = errors.New("Verification error")
 )
 
 type SecureConn struct {
@@ -41,6 +43,7 @@ type LoginRequest struct {
 
 type LoginResponse struct {
 	Name		string	`json:"name"`
+	Token		string	`json:"token"`
 }
 
 // =====REQUESTS SECTION=====
@@ -69,6 +72,11 @@ type SendMessageRequest struct { //9
 	Body		string	`json:"body"`
 }
 
+type SyncRequest struct { //http
+	Handshake	[]byte	`json:"handshake"`
+	After		int64	`json:"after"`
+}
+
 // =====RESPONSES SECTION=====
 
 // type GetChatsResponse []postgres.Chat //10
@@ -92,3 +100,8 @@ type GotMessageAck struct { //15
 	Ts			int64	`json:"ts"`
 	Body		string	`json:"body"`
 }
+
+// type SyncResponse struct {
+// 	Handshake	[]byte	`json:"handshake"`
+// 	Messages	[]byte	`json:"messages"`
+// }

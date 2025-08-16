@@ -98,6 +98,14 @@ func (p PGXPool) GetMessageListByUserIDAndChatIDAndParams(userID, chatID, num, o
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Message])
 }
 
+func (p PGXPool) GetSyncMessageListByReceiverIDAndAfter(userID int, after int64) ([]SyncMessage, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, chatid FROM chat_schema.messages WHERE receiver=%1 AND ts>$2 ORDER BY ts DECS;", userID, after)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[SyncMessage])
+}
+
 func (p PGXPool) InsertMessage(senderID, receiverID, chatID int, body string) (int64, int64, error) {
 	messageID := int64(0)
 	ts := int64(0)

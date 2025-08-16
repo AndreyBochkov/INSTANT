@@ -43,7 +43,7 @@ services:
       - ./website/:/usr/share/nginx/html
     networks:
       - instant
-    restart: on-failure
+    restart: no
 
 networks:
   instant:

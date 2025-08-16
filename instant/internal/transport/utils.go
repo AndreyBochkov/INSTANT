@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"crypto/rand"
 	"crypto/sha256"
-	"errors"
+	"crypto/ed25519"
 
 	"nhooyr.io/websocket"
 	"golang.org/x/crypto/curve25519"
@@ -20,31 +20,45 @@ func New(pool postgres.PGXPool, jwtKey string, version int) Transport {
 	return Transport{pool: pool, jwtKey: jwtKey, version: version}
 }
 
-func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
-	_, payload, err := conn.Read(context.Background())
-	if err != nil {
-		return nil, err
+func (t Transport) parsePayload(payload []byte) ([]byte, []byte, error) {
+	if len(payload) != 97 {
+		return []byte{}, []byte{}, handshakeFault
 	}
 
 	version := int(payload[0])
-	alicePublic := payload[1:]
-
-	if len(alicePublic) != 32 {
-		return nil, errors.New("Invalid handshake pattern")
+	if version != t.version {
+		return []byte{}, []byte{}, invalidVersionError
 	}
 
-	if version != t.version {
-		return nil, invalidVersionError
+	alicePublic := payload[1:33]
+	aliseSigned := payload[33:65]
+	aliceSignature := payload[65:]
+	if !ed25519.Verify(alicePublic, aliseSigned, aliceSignature) {
+		return []byte{}, []byte{}, verificationError
 	}
 
 	bobPrivate := make([]byte, 32)
 	rand.Read(bobPrivate)
 	bobPublic, err := curve25519.X25519(bobPrivate, curve25519.Basepoint)
 	if err != nil {
+		return []byte{}, []byte{}, err
+	}
+
+	sharedPre, err := curve25519.X25519(bobPrivate, aliseSigned)
+	if err != nil {
+		return []byte{}, []byte{}, err
+	}
+
+	return bobPublic, sharedPre, nil
+}
+
+func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
+	_, payload, err := conn.Read(context.Background())
+	if err != nil {
 		return nil, err
 	}
 
-	sharedPre, err := curve25519.X25519(bobPrivate, alicePublic)
+	bobPublic, sharedPre, err := t.parsePayload(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +78,7 @@ func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) ([
 	return sessionKey, nil
 }
 
-func MiddlewareHandler(next http.Handler) http.Handler {
+func MiddlewareHandler(next func (w http.ResponseWriter, r *http.Request)) http.Handler {
 	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
 		guid := uuid.New().String()
 		ctx, err := logger.New(r.Context())
@@ -72,7 +86,7 @@ func MiddlewareHandler(next http.Handler) http.Handler {
 			ctx = context.WithValue(ctx, logger.RequestIDKey, guid)
 			logger.Info(ctx, "Initiating connection")
 			r = r.WithContext(ctx)
-			next.ServeHTTP(w, r)
+			next(w, r)
 		}
 	})
 }
