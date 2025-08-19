@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/hkdf"
 
 	"instant_service/pkg/logger"
+	"instant_service/pkg/postgres"
 	iaes "instant_service/pkg/aes"
 )
 
@@ -70,7 +71,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		case 1:
 			if peerID != -1 {
 				logger.Warn(ctx, "Register while authorized")
-				result = append([]byte{127}, []byte("Authorized already")...)
+				result = append([]byte{127}, []byte("Authorized")...)
 				break
 			}
 			var req RegisterRequest
@@ -101,6 +102,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
+			peerID = -2
 			result = []byte{3}
 			break
 		case 2:
@@ -255,7 +257,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			jsonbytes, err := json.Marshal(NewChatResponse{chatID})
+			jsonbytes, err := json.Marshal(postgres.Chat{chatID, req.User2, label1})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal JSON error")...)
@@ -276,7 +278,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			messages, err := t.pool.GetMessageListByUserIDAndChatIDAndParams(peerID, req.ChatID, req.Num, req.Offset)
+			messages, err := t.pool.GetMessageListByUserIDAndChatIDAndParams(peerID, req.ChatID, 20, req.Offset*20)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					result = append([]byte{13}, []byte("[]")...)
@@ -313,7 +315,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			jsonbytes, err := json.Marshal(SendMessageResponse{messageID, ts})
+			jsonbytes, err := json.Marshal(postgres.SyncMessage{messageID, ts, req.Body, req.ChatID})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
 				return
@@ -322,7 +324,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 
 			receiverConn, connected := t.connmap[req.Receiver]
 			if !connected {break}
-			jsonbytes, err = json.Marshal(GotMessageAck{req.ChatID, messageID, ts, req.Body})
+			jsonbytes, err = json.Marshal(postgres.SyncMessage{messageID, ts, req.Body, req.ChatID})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
 				return
@@ -396,6 +398,11 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 					logger.Warn(ctx, "Send: Error", zap.Error(err))
 					return
 				}
+			}
+		} else {
+			if err := conn.Write(context.Background(), websocket.MessageBinary, result); err != nil {
+				logger.Warn(ctx, "Send: Error", zap.Error(err))
+				return
 			}
 		}
 

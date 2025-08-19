@@ -50,7 +50,6 @@ type LoginResponse struct {
 // =====REQUESTS SECTION=====
 
 // type GetChatsRequest struct { //5
-// 	Token		string	`json:"token"`
 // }
 
 type SearchRequest struct { //6
@@ -63,7 +62,6 @@ type NewChatRequest struct { //7
 
 type GetMessagesRequest struct { //8
 	ChatID		int		`json:"chatid"`
-	Num			int		`json:"num"`
 	Offset		int		`json:"offset"`
 }
 
@@ -89,23 +87,16 @@ type ChangePasswordRequest struct { //16
 
 // type SearchResponse []postgres.User //11
 
-type NewChatResponse struct { //12
-	ChatID		int		`json:"chatid"`
+// type NewChatResponse postgres.Chat //12
+
+type GetMessagesResponse struct { //13
+	ChatID		int					`json:"chatid"`
+	Messages	[]postgres.Message	`json:"messages"`
 }
 
-// type GetMessagesResponse []postgres.Message //13
+// type SendMessageResponse postgres.SyncMessage //14
 
-type SendMessageResponse struct { //14
-	MessageID	int64	`json:"messageid"`
-	Ts			int64	`json:"ts"`
-}
-
-type GotMessageAck struct { //15
-	ChatID		int		`json:"chatid"`
-	MessageID	int64	`json:"messageid"`
-	Ts			int64	`json:"ts"`
-	Body		string	`json:"body"`
-}
+// type GotMessageAck postgres.SyncMessage //15
 
 // type SyncResponse struct { //http
 // 	Handshake	[]byte	`json:"handshake"`

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"time"
 	"syscall"
+	"strconv"
 
 	"go.uber.org/zap"
 
@@ -31,6 +32,7 @@ func main() {
 	if err != nil {
 		logger.Fatal(ctx, "Failed to load config", zap.Error(err))
 	}
+	logger.Info(ctx, "INSTANT PROTOCOL VERSION: " + strconv.Itoa(cfg.Version))
 
 	logger.Info(ctx, "Connecting to the database...")
 	pool, err := postgres.New(ctx, cfg.Postgres, "./db/migrations")
