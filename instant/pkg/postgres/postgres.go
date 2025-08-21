@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"context"
 	"errors"
+	"time"
 	"instant_service/internal/config"
 	migrate "github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -53,17 +54,17 @@ func New(ctx context.Context, cfg config.PGConfig, path string) (PGXPool, error)
 	return PGXPool{pgxPool}, nil
 }
 
-func (p PGXPool) InsertUser(login, password, name string) error {
-	_, err := p.pgxPool.Exec(context.Background(), "INSERT INTO auth_schema.users (login, password, name) VALUES ($1, $2, $3);", login, password, name)
-	return err
+func (p PGXPool) InsertUser(iKey []byte, login string) (int, error) {
+	id := 0
+	err := p.pgxPool.QueryRow(context.Background(), "INSERT INTO auth_schema.users (ikey, login) VALUES ($1, $2) RETURNING id;", iKey, login).Scan(&id)
+	return id, err
 }
 
-func (p PGXPool) GetIDAndNameAndPasswordByLogin(login string) (int, string, string, error) {
+func (p PGXPool) GetIDAndIKeyByLogin(login string) (int, []byte, error) {
 	id := -1
-	name := ""
-	password := ""
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT id, name, password FROM auth_schema.users WHERE login=$1;", login).Scan(&id, &name, &password)
-	return id, name, password, err
+	iKey := []byte{}
+	err := p.pgxPool.QueryRow(context.Background(), "SELECT id, ikey FROM auth_schema.users WHERE login=$1;", login).Scan(&id, &iKey)
+	return id, iKey, err
 }
 
 // =====
@@ -77,7 +78,7 @@ func (p PGXPool) GetChatListByID(id int) ([]Chat, error) {
 }
 
 func (p PGXPool) SearchUsersByQuery(query string) ([]User, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT id, login, name FROM auth_schema.users WHERE login ILIKE $1", query)
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT id, login FROM auth_schema.users WHERE login ILIKE $1", query+"%")
 	if err != nil {
 		return nil, err
 	}
@@ -90,8 +91,8 @@ func (p PGXPool) InsertChat(id1, id2 int, label1, label2 string) (int, error) {
 	return chatID, err
 }
 
-func (p PGXPool) GetMessageListByUserIDAndChatIDAndParams(userID, chatID, num, offset int) ([]Message, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, sender=$1 AS mine FROM chat_schema.messages WHERE chatid=$2 ORDER BY ts DECS LIMIT $3 OFFSET $4;", userID, chatID, num, offset)
+func (p PGXPool) GetMessageListByUserIDAndChatIDAndParam(userID, chatID, offset int) ([]Message, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, sender=$1 AS mine FROM chat_schema.messages WHERE chatid=$2 ORDER BY ts DECS LIMIT $3 OFFSET $4;", userID, chatID, 20, offset*20)
 	if err != nil {
 		return nil, err
 	}
@@ -113,29 +114,23 @@ func (p PGXPool) InsertMessage(senderID, receiverID, chatID int, body string) (i
 	return messageID, ts, err
 }
 
-func (p PGXPool) GetPasswordByID(userid int) (string, error) {
-	password := ""
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT password FROM auth_schema.users WHERE id=$1;", userid).Scan(&password)
-	return password, err
+func (p PGXPool) UpdateIKeyByID(userid int, iKey []byte) error {
+	_, err := p.pgxPool.Exec(context.Background(), "UPDATE auth_schema.users SET ikey=$2 WHERE id=$1;", userid, iKey)
+	return err
 }
 
-func (p PGXPool) UpdatePasswordByID(userid int, password string) error {
-	_, err := p.pgxPool.Exec(context.Background(), "UPDATE auth_schema.users SET password=$2 WHERE id=$1;", userid, password)
-	return err
+func (p PGXPool) GetIDByIKeyUpdatingTS(iKey []byte) int {
+	id := -1
+	p.pgxPool.QueryRow(context.Background(), "UPDATE auth_schema.users SET ts=$1 WHERE ikey=$2 RETURNING id", time.Now().Unix(), iKey).Scan(&id)
+	return id
 }
 
 // =====
 
-func (p PGXPool) VerifyLoginAndID(login string, id int) bool {
-	dbid := 0
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT id FROM auth_schema.users WHERE login=$1;", login).Scan(&dbid)
-	return err == nil && id == dbid
-}
-
-func (p PGXPool) GetNameByUserID(id int) (string, error) {
-	name := ""
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT name FROM auth_schema.users WHERE id=$1;", id).Scan(&name)
-	return name, err
+func (p PGXPool) GetLoginByUserID(id int) (string, error) {
+	login := ""
+	err := p.pgxPool.QueryRow(context.Background(), "SELECT login FROM auth_schema.users WHERE id=$1;", id).Scan(&login)
+	return login, err
 }
 
 func (p PGXPool) Close() {

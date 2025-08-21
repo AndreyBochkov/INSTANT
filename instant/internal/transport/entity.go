@@ -23,7 +23,6 @@ type SecureConn struct {
 
 type Transport struct {
 	pool				postgres.PGXPool
-	jwtKey				string
 	version				int
 	rotationInterval	int
 
@@ -31,41 +30,30 @@ type Transport struct {
 	connmap				map[int]SecureConn
 }
 
-type RegisterRequest struct {
+type RegisterRequest struct { //17
 	Login		string	`json:"login"`
-	Password	string	`json:"password"`
-	Name		string	`json:"name"`
 }
 
-type LoginRequest struct {
-	Login		string	`json:"login"`
-	Password	string	`json:"password"`
-}
-
-type LoginResponse struct {
-	Name		string	`json:"name"`
-	Token		string	`json:"token"`
-}
+// type RegisterResponse [ackbyte] //18
 
 // =====REQUESTS SECTION=====
 
-// type GetChatsRequest struct { //5
-// }
+// type GetChatsRequest [ackbyte] { //11
 
-type SearchRequest struct { //6
+type SearchRequest struct { //12
 	Query		string	`json:"query"`
 }
 
-type NewChatRequest struct { //7
+type NewChatRequest struct { //13
 	User2		int		`json:"user2"`
 }
 
-type GetMessagesRequest struct { //8
+type GetMessagesRequest struct { //14
 	ChatID		int		`json:"chatid"`
 	Offset		int		`json:"offset"`
 }
 
-type SendMessageRequest struct { //9
+type SendMessageRequest struct { //15
 	Receiver	int		`json:"receiver"`
 	ChatID		int		`json:"chatid"`
 	Body		string	`json:"body"`
@@ -76,32 +64,30 @@ type SyncRequest struct { //http
 	After		int64	`json:"after"`
 }
 
-type ChangePasswordRequest struct { //16
-	Old			string	`json:"old"`
-	New			string	`json:"new"`
+type ChangeIKeyRequest struct { //16
+	New			[]byte	`json:"new"`
 }
 
 // =====RESPONSES SECTION=====
 
-// type GetChatsResponse []postgres.Chat //10
+// type GetChatsResponse []postgres.Chat //51
 
-// type SearchResponse []postgres.User //11
+// type SearchResponse []postgres.User //52
 
-// type NewChatResponse postgres.Chat //12
+// type NewChatResponse postgres.Chat //53
 
-type GetMessagesResponse struct { //13
+type GetMessagesResponse struct { //54
 	ChatID		int					`json:"chatid"`
 	Messages	[]postgres.Message	`json:"messages"`
 }
 
-// type SendMessageResponse postgres.SyncMessage //14
+// type SendMessageResponse postgres.SyncMessage //55
 
-// type GotMessageAck postgres.SyncMessage //15
+// type ChangePasswordResponse [ackbyte] { //56
+
+// type GotMessageAck postgres.SyncMessage //91
 
 // type SyncResponse struct { //http
 // 	Handshake	[]byte	`json:"handshake"`
 // 	Messages	[]byte	`json:"messages"`
-// }
-
-// type ChangePasswordResponse struct { //17
 // }

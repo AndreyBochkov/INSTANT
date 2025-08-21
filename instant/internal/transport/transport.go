@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"strings"
 	"errors"
-	"strconv"
 	"time"
 	"crypto/rand"
 	"crypto/sha256"
@@ -14,9 +13,7 @@ import (
 
 	"nhooyr.io/websocket"
 	"go.uber.org/zap"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/jackc/pgx/v5"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/hkdf"
 
 	"instant_service/pkg/logger"
@@ -37,9 +34,10 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	sessionKey, err := t.handleHandshake(ctx, conn)
+	peerID, iKey, sessionKey, err := t.handleHandshake(ctx, conn)
 	if err != nil {
 		if errors.Is(err, invalidVersionError) {
+			logger.Info(ctx, "Old version request")
 			conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Invalid version")...))
 			return
 		}
@@ -48,7 +46,6 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peerID := -1
 	rotationTs := time.Now().Unix()
 
 	for {
@@ -68,7 +65,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		var result []byte
 
 		switch enc[0] {
-		case 1:
+		case 17: // Register
 			if peerID != -1 {
 				logger.Warn(ctx, "Register while authorized")
 				result = append([]byte{127}, []byte("Authorized")...)
@@ -80,75 +77,20 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				result = append([]byte{127}, []byte("Internal JSON error")...)
 				break
 			}
-			if req.Login == "" || req.Password == "" {
+			if req.Login == "" {
 				result = []byte{126}
 				break
 			}
 
-			passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-			if err != nil {
-				logger.Warn(ctx, "Bcrypt error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal bcrypt error")...)
-				break
-			}
-
-			err = t.pool.InsertUser(req.Login, string(passwordHash), req.Name)
+			id, err := t.pool.InsertUser(iKey, req.Login)
 			if err != nil {
 				if strings.Contains(err.Error(), "23505") {
-					result = []byte{125} // duplicated login
+					logger.Info(ctx, "Register: Duplicated login")
+					result = []byte{125}
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
-				break
-			}
-			peerID = -2
-			result = []byte{3}
-			break
-		case 2:
-			if peerID != -1 {
-				logger.Warn(ctx, "Login while authorized")
-				result = append([]byte{127}, []byte("Authorized already")...)
-				break
-			}
-			var req LoginRequest
-			if err := json.Unmarshal(payload, &req); err != nil {
-				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
-				break
-			}
-
-			id, name, passwordHash, err := t.pool.GetIDAndNameAndPasswordByLogin(req.Login)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					result = []byte{124} // invalid login
-					break
-				}
-				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
-				break
-			}
-
-			if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
-				result = []byte{124} // invalid password
-				break
-			}
-
-			token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-				"sub":	id,
-				"iss":	"instant",
-				"exp":	time.Now().Add(48*time.Hour),
-			}).SignedString(t.jwtKey)
-			if err != nil {
-				logger.Warn(ctx, "JWT error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal error")...)
-				break
-			}
-
-			jsonbytes, err := json.Marshal(LoginResponse{Name: name, Token: token})
-			if err != nil {
-				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
 				break
 			}
 
@@ -163,9 +105,9 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				logger.Info(ctx, "Goodbye!", zap.Int("userId", id))
 			}()
 			peerID = id
-			result = append([]byte{4}, jsonbytes...)
+			result = []byte{3}
 			break
-		case 5:
+		case 11: //GetChats
 			if peerID < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
 				result = append([]byte{127}, []byte("Unauthorized")...)
@@ -175,7 +117,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 			chats, err := t.pool.GetChatListByID(peerID)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					result = append([]byte{10}, []byte("[]")...)
+					result = append([]byte{51}, []byte("[]")...)
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
@@ -189,9 +131,9 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				result = append([]byte{127}, []byte("Internal JSON error")...)
 				break
 			}
-			result = append([]byte{10}, jsonbytes...)
+			result = append([]byte{51}, jsonbytes...)
 			break
-		case 6:
+		case 12: //Search
 			if peerID < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
 				result = append([]byte{127}, []byte("Unauthorized")...)
@@ -207,7 +149,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 			users, err := t.pool.SearchUsersByQuery(req.Query)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					result = append([]byte{11}, []byte("[]")...)
+					result = append([]byte{52}, []byte("[]")...)
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
@@ -221,9 +163,9 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				result = append([]byte{127}, []byte("Internal JSON error")...)
 				break
 			}
-			result = append([]byte{11}, jsonbytes...)
+			result = append([]byte{52}, jsonbytes...)
 			break
-		case 7:
+		case 13: //NewChat
 			if peerID < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
 				result = append([]byte{127}, []byte("Unauthorized")...)
@@ -236,14 +178,14 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			label1, err := t.pool.GetNameByUserID(req.User2)
+			label1, err := t.pool.GetLoginByUserID(req.User2)
 			if err != nil {
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
 			
-			label2, err := t.pool.GetNameByUserID(peerID)
+			label2, err := t.pool.GetLoginByUserID(peerID)
 			if err != nil {
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
@@ -263,9 +205,23 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				result = append([]byte{127}, []byte("Internal JSON error")...)
 				break
 			}
-			result = append([]byte{12}, jsonbytes...)
+			result = append([]byte{53}, jsonbytes...)
+
+			receiverConn, connected := t.connmap[req.User2]
+			if !connected {break}
+			jsonbytes, err = json.Marshal(postgres.Chat{chatID, peerID, label2})
+			if err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				break
+			}
+			enc, err := iaes.Encrypt(receiverConn.sessionKey, jsonbytes)
+			if err != nil {
+				logger.Warn(ctx, "Encryption error", zap.Error(err))
+				break
+			}
+			receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{53}, enc...))
 			break
-		case 8:
+		case 14: //GetMessages
 			if peerID < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
 				result = append([]byte{127}, []byte("Unauthorized")...)
@@ -278,10 +234,10 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			messages, err := t.pool.GetMessageListByUserIDAndChatIDAndParams(peerID, req.ChatID, 20, req.Offset*20)
+			messages, err := t.pool.GetMessageListByUserIDAndChatIDAndParam(peerID, req.ChatID, req.Offset)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					result = append([]byte{13}, []byte("[]")...)
+					result = append([]byte{54}, []byte("[]")...)
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
@@ -292,11 +248,12 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 			jsonbytes, err := json.Marshal(messages)
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				return
+				result = append([]byte{127}, []byte("Internal JSON error")...)
+				break
 			}
-			result = append([]byte{13}, jsonbytes...)
+			result = append([]byte{54}, jsonbytes...)
 			break
-		case 9:
+		case 15: //SendMessage
 			if peerID < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
 				result = append([]byte{127}, []byte("Unauthorized")...)
@@ -304,8 +261,9 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			var req SendMessageRequest
 			if err := json.Unmarshal(payload, &req); err != nil {
-				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
-				return
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				result = append([]byte{127}, []byte("Internal JSON error")...)
+				break
 			}
 
 			messageID, ts, err := t.pool.InsertMessage(peerID, req.Receiver, req.ChatID, req.Body)
@@ -318,16 +276,17 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 			jsonbytes, err := json.Marshal(postgres.SyncMessage{messageID, ts, req.Body, req.ChatID})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				return
+				result = append([]byte{127}, []byte("Internal JSON error")...)
+				break
 			}
-			result = append([]byte{14}, jsonbytes...)
+			result = append([]byte{55}, jsonbytes...)
 
 			receiverConn, connected := t.connmap[req.Receiver]
 			if !connected {break}
 			jsonbytes, err = json.Marshal(postgres.SyncMessage{messageID, ts, req.Body, req.ChatID})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				return
+				break
 			}
 			enc, err := iaes.Encrypt(receiverConn.sessionKey, jsonbytes)
 			if err != nil {
@@ -342,39 +301,20 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				result = append([]byte{127}, []byte("Unauthorized")...)
 				break
 			}
-			var req ChangePasswordRequest
+			var req ChangeIKeyRequest
 			if err := json.Unmarshal(payload, &req); err != nil {
 				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
-				return
+				break
 			}
 
-			passwordHash, err := t.pool.GetPasswordByID(peerID)
+			err = t.pool.UpdateIKeyByID(peerID, req.New)
 			if err != nil {
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break
 			}
 
-			if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Old)) != nil {
-				result = []byte{124} // invalid old password
-				break
-			}
-
-			newPasswordHash, err := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
-			if err != nil {
-				logger.Warn(ctx, "Bcrypt error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal bcrypt error")...)
-				break
-			}
-
-			err = t.pool.UpdatePasswordByID(peerID, string(newPasswordHash))
-			if err != nil {
-				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
-				break
-			}
-
-			result = []byte{17}
+			result = []byte{56}
 			break
 		default:
 			logger.Warn(ctx, "Invalid message type. Payload: " + string(payload), zap.Int("invalidMessageType", int(enc[0])))
@@ -412,7 +352,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				serverRandom := make([]byte, 32)
 				rand.Read(serverRandom)
 
-				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{18}, serverRandom...)); err != nil {
+				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{92}, serverRandom...)); err != nil {
 					logger.Warn(ctx, "RotateKeys: Send: Error", zap.Error(err))
 					return
 				}
@@ -430,55 +370,6 @@ func (t Transport) SyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenString := r.Header.Get("Authorization")
-	if tokenString == "" {
-		http.Error(w, "Unauthorized", http.StatusBadRequest)
-		return
-	}
-
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return t.jwtKey, nil
-	})
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusBadRequest)
-		return
-	}
-	if !token.Valid {
-		http.Error(w, "Unauthorized", http.StatusBadRequest)
-		return
-	}
-
-	iss, err := token.Claims.GetIssuer()
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusBadRequest)
-		return
-	}
-	if iss != "instant" {
-		http.Error(w, "Unauthorized", http.StatusBadRequest)
-		return
-	}
-
-	exp, err := token.Claims.GetExpirationTime()
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusBadRequest)
-		return
-	}
-	if exp.Before(time.Now()) {
-		http.Error(w, "Expired", http.StatusBadRequest)
-		return
-	}
-
-	sub, err := token.Claims.GetSubject()
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusBadRequest)
-		return
-	}
-	id, err := strconv.Atoi(sub)
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusBadRequest)
-		return
-	}
-
 	var req SyncRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		logger.Warn(r.Context(), "Error in JSON decoder", zap.Error(err))
@@ -486,8 +377,8 @@ func (t Transport) SyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bobPublic, sharedPre, err := t.parsePayload(req.Handshake)
-	if err != nil {
+	id, _, bobPublic, sharedPre, err := t.parsePayload(req.Handshake)
+	if err != nil || id == -1{
 		logger.Warn(r.Context(), "Handshake error", zap.Error(err))
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return

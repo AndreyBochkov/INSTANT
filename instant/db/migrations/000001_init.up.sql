@@ -2,9 +2,9 @@ CREATE SCHEMA IF NOT EXISTS auth_schema;
 CREATE TABLE IF NOT EXISTS auth_schema.users
 (
     id SERIAL PRIMARY KEY,
+    ikey BYTEA NOT NULL,
     login TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    name VARCHAR(42)
+    ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()))
 );
 
 CREATE SCHEMA IF NOT EXISTS chat_schema;

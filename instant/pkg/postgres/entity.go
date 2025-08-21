@@ -9,7 +9,6 @@ type Chat struct {
 type User struct {
 	UserID		int			`json:"userid"`
 	Login		string		`json:"login"`
-	Name		string		`json:"name"`
 }
 
 type Message struct {
