@@ -24,7 +24,7 @@ body {
     width: 100%;
     text-align: center;
     font-size: 3em;
-    margin-block: 15px;
+    margin-block: 1em;
 }
 
 img {
@@ -34,9 +34,19 @@ img {
 .text {
     background-color: #d0e8ff;
     font-weight: 500;
-    padding: 15px;
-    border-radius: 15px;
-    margin: 15px;
+    padding: 1em;
+    border-radius: 1em;
+    margin: 1em;
+}
+
+.scroll {
+    width: 100%;
+    overflow: scroll;
+}
+
+td {
+    border: 1px solid black;
+    border-radius: .2em;
 }
 
 .text * {
@@ -45,7 +55,7 @@ img {
 
 footer {
     background-color: #dddddd;
-    padding: 15px;
+    padding: 1em;
     flex-shrink: 0;
 }
 
