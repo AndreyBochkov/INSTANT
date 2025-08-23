@@ -1,6 +1,8 @@
 package aes
 
 import (
+	"errors"
+	"fmt"
 	craes "crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -27,6 +29,10 @@ func Encrypt(key, plaintext []byte) ([]byte, error) {
 }
 
 func Decrypt(key, rawciphertext []byte) ([]byte, error) {
+	if len(rawciphertext) <= 13 {
+		return nil, errors.New(fmt.Sprintf("Too small rawciphertext: %x", rawciphertext))
+	}
+
 	block, err := craes.NewCipher(append(key[16:], key[:16]...))
 	if err != nil {
 		return nil, err
@@ -37,7 +43,10 @@ func Decrypt(key, rawciphertext []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	plaintext, err := gcm.Open(nil, rawciphertext[1:gcm.NonceSize()+1], rawciphertext[gcm.NonceSize()+1:], nil)
+	nonce := rawciphertext[1:gcm.NonceSize()+1]
+	ciphertext := rawciphertext[gcm.NonceSize()+1:]
+
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return nil, err // Returns error if authentication fails
 	}

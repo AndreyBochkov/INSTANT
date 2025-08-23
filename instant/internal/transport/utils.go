@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"math/big"
 
 	"nhooyr.io/websocket"
 	"golang.org/x/crypto/curve25519"
@@ -21,23 +23,31 @@ func New(pool postgres.PGXPool, version int, rotationInterval int) Transport {
 }
 
 func (t Transport) parsePayload(payload []byte) (int, []byte, []byte, []byte, error) {
-	if len(payload) != 97 {
+	if len(payload) <= 98 {
 		return -1, nil, nil, nil, handshakeFault
 	}
 
-	version := int(payload[0])
-	if version != t.version {
+	if int(payload[0]) != t.version {
 		return -1, nil, nil, nil, invalidVersionError
 	}
 
-	alicePublic := payload[1:33]
-	aliseSigned := payload[33:65]
-	aliceSignature := payload[65:]
-	if !ed25519.Verify(alicePublic, aliseSigned, aliceSignature) {
+	alicePublicXY := payload[1:65] // compressed [X][Y]
+	aliceSigned := payload[65:97]
+	aliceSignature := payload[97:] // asn.1 block
+
+	alicePublic := &ecdsa.PublicKey{
+		Curve: elliptic.P256(),
+		X: new(big.Int).SetBytes(alicePublicXY[:32]),
+		Y: new(big.Int).SetBytes(alicePublicXY[32:64]),
+	}
+
+	hash := sha256.New()
+	hash.Write(aliceSigned)
+	if !ecdsa.VerifyASN1(alicePublic, hash.Sum(nil), aliceSignature) {
 		return -1, nil, nil, nil, verificationError
 	}
 
-	id := t.pool.GetIDByIKeyUpdatingTS(alicePublic)
+	id := t.pool.GetIDByIKeyUpdatingTS(alicePublicXY)
 
 	bobPrivate := make([]byte, 32)
 	rand.Read(bobPrivate)
@@ -46,12 +56,12 @@ func (t Transport) parsePayload(payload []byte) (int, []byte, []byte, []byte, er
 		return -1, nil, nil, nil, err
 	}
 
-	sharedPre, err := curve25519.X25519(bobPrivate, aliseSigned)
+	sharedPre, err := curve25519.X25519(bobPrivate, aliceSigned)
 	if err != nil {
 		return -1, nil, nil, nil, err
 	}
 
-	return id, alicePublic, bobPublic, sharedPre, nil
+	return id, alicePublicXY, bobPublic, sharedPre, nil
 }
 
 func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) (int, []byte, []byte, error) {
