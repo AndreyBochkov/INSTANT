@@ -19,7 +19,7 @@ import (
 )
 
 func New(pool postgres.PGXPool, version int, rotationInterval int) Transport {
-	return Transport{pool: pool, version: version, rotationInterval: rotationInterval}
+	return Transport{pool: pool, version: version, rotationInterval: rotationInterval, connmap: map[int]SecureConn{}}
 }
 
 func (t Transport) parsePayload(payload []byte) (int, []byte, []byte, []byte, error) {

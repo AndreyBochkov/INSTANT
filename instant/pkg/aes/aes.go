@@ -8,6 +8,10 @@ import (
 	"crypto/rand"
 )
 
+var (
+	ZeroLengthCiphertextError = errors.New("Zero length ciphertext")
+)
+
 func Encrypt(key, plaintext []byte) ([]byte, error) {
 	block, err := craes.NewCipher(append(key[16:], key[:16]...))
 	if err != nil {
@@ -29,6 +33,10 @@ func Encrypt(key, plaintext []byte) ([]byte, error) {
 }
 
 func Decrypt(key, rawciphertext []byte) ([]byte, error) {
+	if len(rawciphertext) == 1 {
+		return nil, ZeroLengthCiphertextError
+	}
+	
 	if len(rawciphertext) <= 13 {
 		return nil, errors.New(fmt.Sprintf("Too small rawciphertext: %x", rawciphertext))
 	}

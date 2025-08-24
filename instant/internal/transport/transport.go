@@ -46,6 +46,19 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if peerID != -1 {
+		t.Lock()
+		t.connmap[peerID] = SecureConn{conn, sessionKey}
+		t.Unlock()
+		logger.Info(ctx, "Welcome!", zap.Int("userId", peerID))
+		defer func() {
+			t.Lock()
+			delete(t.connmap, peerID)
+			t.Unlock()
+			logger.Info(ctx, "Goodbye!", zap.Int("userId", peerID))
+		}()
+	}
+
 	rotationTs := time.Now().Unix()
 
 	for {
@@ -56,7 +69,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		payload, err := iaes.Decrypt(sessionKey, enc)
-		if err != nil {
+		if err != nil && err != iaes.ZeroLengthCiphertextError {
 			logger.Warn(ctx, "InstAES decoding error", zap.Error(err))
 			conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
 			return
