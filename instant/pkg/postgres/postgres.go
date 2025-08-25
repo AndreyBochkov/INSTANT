@@ -70,7 +70,7 @@ func (p PGXPool) GetIDAndIKeyByLogin(login string) (int, []byte, error) {
 // =====
 
 func (p PGXPool) GetChatListByID(id int) ([]Chat, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT chatid, user2, CASE WHEN user1=$1 THEN label1 ELSE label2 END AS label FROM chat_schema.chats WHERE user1=$1 OR user2=$1;", id)
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT chatid, CASE WHEN user1=$1 THEN user2 ELSE user1 END AS user2, CASE WHEN user1=$1 THEN label1 ELSE label2 END AS label FROM chat_schema.chats WHERE user1=$1 OR user2=$1;", id)
 	if err != nil {
 		return nil, err
 	}

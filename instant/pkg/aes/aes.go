@@ -13,7 +13,7 @@ var (
 )
 
 func Encrypt(key, plaintext []byte) ([]byte, error) {
-	block, err := craes.NewCipher(append(key[16:], key[:16]...))
+	block, err := craes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func Decrypt(key, rawciphertext []byte) ([]byte, error) {
 		return nil, errors.New(fmt.Sprintf("Too small rawciphertext: %x", rawciphertext))
 	}
 
-	block, err := craes.NewCipher(append(key[16:], key[:16]...))
+	block, err := craes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}

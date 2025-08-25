@@ -118,7 +118,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				logger.Info(ctx, "Goodbye!", zap.Int("userId", id))
 			}()
 			peerID = id
-			result = []byte{3}
+			result = []byte{57}
 			break
 		case 11: //GetChats
 			if peerID < 0 {

@@ -81,7 +81,12 @@ func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) (i
 	sessionKey := make([]byte, 32)
 	hkdf.New(sha256.New, sharedPre, serverRandom, nil).Read(sessionKey)
 
-	if err := conn.Write(context.Background(), websocket.MessageBinary, append(append(append([]byte{0}, bobPublic...), serverRandom...), []byte(ctx.Value(logger.RequestIDKey).(string))...)); err != nil {
+	msgType := 0
+	if id != -1 {
+		msgType = 1
+	}
+
+	if err := conn.Write(context.Background(), websocket.MessageBinary, append(append(append([]byte{byte(msgType)}, bobPublic...), serverRandom...), []byte(ctx.Value(logger.RequestIDKey).(string))...)); err != nil {
 		return -1, nil, nil, err
 	}
 
