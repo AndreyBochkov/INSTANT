@@ -22,13 +22,13 @@ func New(pool postgres.PGXPool, version int, rotationInterval int) Transport {
 	return Transport{pool: pool, version: version, rotationInterval: rotationInterval, connmap: map[int]SecureConn{}}
 }
 
-func (t Transport) parsePayload(payload []byte) (int, []byte, []byte, []byte, error) {
+func (t Transport) parsePayload(payload []byte) (*parsedHSPayload, error) {
 	if len(payload) <= 98 {
-		return -1, nil, nil, nil, handshakeFault
+		return nil, handshakeFault
 	}
 
 	if int(payload[0]) != t.version {
-		return -1, nil, nil, nil, invalidVersionError
+		return nil, invalidVersionError
 	}
 
 	alicePublicXY := payload[1:65] // compressed [X][Y]
@@ -44,24 +44,40 @@ func (t Transport) parsePayload(payload []byte) (int, []byte, []byte, []byte, er
 	hash := sha256.New()
 	hash.Write(aliceSigned)
 	if !ecdsa.VerifyASN1(alicePublic, hash.Sum(nil), aliceSignature) {
-		return -1, nil, nil, nil, verificationError
+		return nil, verificationError
 	}
 
-	id := t.pool.GetIDByIKeyUpdatingTS(alicePublicXY)
+	id, ts := t.pool.GetIDAntTSByIKeyUpdatingTS(alicePublicXY)
 
 	bobPrivate := make([]byte, 32)
 	rand.Read(bobPrivate)
 	bobPublic, err := curve25519.X25519(bobPrivate, curve25519.Basepoint)
 	if err != nil {
-		return -1, nil, nil, nil, err
+		return nil, err
 	}
 
 	sharedPre, err := curve25519.X25519(bobPrivate, aliceSigned)
 	if err != nil {
-		return -1, nil, nil, nil, err
+		return nil, err
 	}
 
-	return id, alicePublicXY, bobPublic, sharedPre, nil
+	return &parsedHSPayload{
+		id: id,
+		ts: ts,
+		iKey: alicePublicXY,
+		bobPublic: bobPublic,
+		sharedPre: sharedPre,
+	}, nil
+}
+
+func finishHandshake(sharedPre []byte) ([]byte, []byte) {
+	serverRandom := make([]byte, 32)
+	rand.Read(serverRandom)
+
+	sessionKey := make([]byte, 32)
+	hkdf.New(sha256.New, sharedPre, serverRandom, nil).Read(sessionKey)
+
+	return serverRandom, sessionKey
 }
 
 func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) (int, []byte, []byte, error) {
@@ -70,27 +86,23 @@ func (t Transport) handleHandshake(ctx context.Context, conn *websocket.Conn) (i
 		return -1, nil, nil, err
 	}
 
-	id, iKey, bobPublic, sharedPre, err := t.parsePayload(payload)
+	parsed, err := t.parsePayload(payload)
 	if err != nil {
 		return -1, nil, nil, err
 	}
 
-	serverRandom := make([]byte, 32)
-	rand.Read(serverRandom)
-
-	sessionKey := make([]byte, 32)
-	hkdf.New(sha256.New, sharedPre, serverRandom, nil).Read(sessionKey)
+	serverRandom, sessionKey := finishHandshake(parsed.sharedPre)
 
 	msgType := 0
-	if id != -1 {
+	if parsed.id != -1 {
 		msgType = 1
 	}
 
-	if err := conn.Write(context.Background(), websocket.MessageBinary, append(append(append([]byte{byte(msgType)}, bobPublic...), serverRandom...), []byte(ctx.Value(logger.RequestIDKey).(string))...)); err != nil {
+	if err := conn.Write(context.Background(), websocket.MessageBinary, append(append(append([]byte{byte(msgType)}, parsed.bobPublic...), serverRandom...), []byte(ctx.Value(logger.RequestIDKey).(string))...)); err != nil {
 		return -1, nil, nil, err
 	}
 
-	return id, iKey, sessionKey, nil
+	return parsed.id, parsed.iKey, sessionKey, nil
 }
 
 func MiddlewareHandler(next func (w http.ResponseWriter, r *http.Request)) http.Handler {

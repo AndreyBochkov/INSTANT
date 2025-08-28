@@ -16,6 +16,14 @@ var (
 	verificationError = errors.New("Verification error")
 )
 
+type parsedHSPayload struct {
+	id				int
+	ts				int64
+	iKey			[]byte
+	bobPublic		[]byte
+	sharedPre		[]byte
+}
+
 type SecureConn struct {
 	conn		*websocket.Conn
 	sessionKey	[]byte
@@ -61,7 +69,6 @@ type SendMessageRequest struct { //15
 
 type SyncRequest struct { //http
 	Handshake	[]byte	`json:"handshake"`
-	After		int64	`json:"after"`
 }
 
 type ChangeIKeyRequest struct { //16

@@ -92,7 +92,7 @@ func (p PGXPool) InsertChat(id1, id2 int, label1, label2 string) (int, error) {
 }
 
 func (p PGXPool) GetMessageListByUserIDAndChatIDAndParam(userID, chatID, offset int) ([]Message, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, sender=$1 AS mine FROM chat_schema.messages WHERE chatid=$2 ORDER BY ts DECS LIMIT $3 OFFSET $4;", userID, chatID, 20, offset*20)
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, sender=$1 AS mine FROM chat_schema.messages WHERE chatid=$2 ORDER BY ts DESC LIMIT $3 OFFSET $4;", userID, chatID, 20, offset*20)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (p PGXPool) GetMessageListByUserIDAndChatIDAndParam(userID, chatID, offset 
 }
 
 func (p PGXPool) GetSyncMessageListByReceiverIDAndAfter(userID int, after int64) ([]SyncMessage, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, chatid FROM chat_schema.messages WHERE receiver=%1 AND ts>$2 ORDER BY ts DECS;", userID, after)
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, chatid FROM chat_schema.messages WHERE receiver=$1 AND ts>$2 ORDER BY ts DESC;", userID, after)
 	if err != nil {
 		return nil, err
 	}
@@ -119,10 +119,11 @@ func (p PGXPool) UpdateIKeyByID(userid int, iKey []byte) error {
 	return err
 }
 
-func (p PGXPool) GetIDByIKeyUpdatingTS(iKey []byte) int {
+func (p PGXPool) GetIDAntTSByIKeyUpdatingTS(iKey []byte) (int, int64) {
 	id := -1
-	p.pgxPool.QueryRow(context.Background(), "UPDATE auth_schema.users SET ts=$1 WHERE ikey=$2 RETURNING id", time.Now().Unix(), iKey).Scan(&id)
-	return id
+	ts := int64(-1)
+	p.pgxPool.QueryRow(context.Background(), "WITH oldvalues AS (SELECT id, ts FROM auth_schema.users WHERE ikey=$2) UPDATE auth_schema.users SET ts=$1 FROM oldvalues WHERE auth_schema.users.id = oldvalues.id RETURNING auth_schema.users.id, oldvalues.ts;", time.Now().Unix(), iKey).Scan(&id, &ts)
+	return id, ts
 }
 
 // =====

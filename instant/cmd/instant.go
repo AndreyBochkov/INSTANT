@@ -44,7 +44,6 @@ func main() {
 	t := transport.New(pool, cfg.Version, cfg.RotationInterval)
 	mux := http.NewServeMux()
 	mux.Handle("/instant/", transport.MiddlewareHandler(t.MainHandler))
-	mux.Handle("/sync/", transport.MiddlewareHandler(t.SyncHandler))
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 		Handler: mux,

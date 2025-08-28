@@ -22,7 +22,8 @@ import (
 )
 
 func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -59,10 +60,23 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			err := conn.Ping(ctx)
+			if err != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+
 	rotationTs := time.Now().Unix()
 
 	for {
-		_, enc, err := conn.Read(context.Background())
+		_, enc, err := conn.Read(ctx)
 		if err != nil {
 			logger.Info(ctx, "Receive: Error", zap.Error(err))
 			return
@@ -250,7 +264,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 			messages, err := t.pool.GetMessageListByUserIDAndChatIDAndParam(peerID, req.ChatID, req.Offset)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					result = append([]byte{54}, []byte("[]")...)
+					result = append([]byte{54}, []byte(fmt.Sprintf(`{"chatid":%d;"messages":[]}`, req.ChatID))...)
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
@@ -258,7 +272,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			jsonbytes, err := json.Marshal(messages)
+			jsonbytes, err := json.Marshal(GetMessagesResponse{ChatID:req.ChatID, Messages:messages})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal JSON error")...)
@@ -306,7 +320,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				logger.Warn(ctx, "Encryption error", zap.Error(err))
 				break
 			}
-			receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{15}, enc...))
+			receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{91}, enc...))
 			break
 		case 16:
 			if peerID < 0 {
@@ -390,25 +404,22 @@ func (t Transport) SyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, _, bobPublic, sharedPre, err := t.parsePayload(req.Handshake)
-	if err != nil || id == -1{
+	parsed, err := t.parsePayload(req.Handshake)
+	if err != nil || parsed.id == -1{
 		logger.Warn(r.Context(), "Handshake error", zap.Error(err))
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	messages, err := t.pool.GetSyncMessageListByReceiverIDAndAfter(id, req.After)
+	messages, err := t.pool.GetSyncMessageListByReceiverIDAndAfter(parsed.id, parsed.ts)
+
 	if err != nil {
 		logger.Warn(r.Context(), "Postgres error", zap.Error(err))
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
-	serverRandom := make([]byte, 32)
-	rand.Read(serverRandom)
-
-	sessionKey := make([]byte, 32)
-	hkdf.New(sha256.New, sharedPre, serverRandom, nil).Read(sessionKey)
+	serverRandom, sessionKey := finishHandshake(parsed.sharedPre)
 
 	jsonbytes, err := json.Marshal(messages)
 	if err != nil {
@@ -425,5 +436,5 @@ func (t Transport) SyncHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, string(append(append(bobPublic, serverRandom...), enc...)))
+	fmt.Fprint(w, string(append(append(parsed.bobPublic, serverRandom...), enc...)))
 }
