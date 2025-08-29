@@ -20,6 +20,10 @@ body {
     }
 }
 
+ol {
+    padding-left: 1em;
+}
+
 .logo {
     width: 100%;
     text-align: center;
