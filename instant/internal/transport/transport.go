@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"encoding/json"
-	"strings"
 	"errors"
 	"time"
 	"crypto/rand"
@@ -109,13 +108,14 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
+			if t.pool.CheckLogin(req.Login) {
+				logger.Info(ctx, "Register: Duplicated login")
+				result = []byte{125}
+				break
+			}
+
 			id, err := t.pool.InsertUser(iKey, req.Login)
 			if err != nil {
-				if strings.Contains(err.Error(), "23505") {
-					logger.Info(ctx, "Register: Duplicated login")
-					result = []byte{125}
-					break
-				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
 				result = append([]byte{127}, []byte("Internal DB error")...)
 				break

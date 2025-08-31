@@ -134,6 +134,12 @@ func (p PGXPool) GetLoginByUserID(id int) (string, error) {
 	return login, err
 }
 
+func (p PGXPool) CheckLogin(login string) bool {
+	exists := false
+	p.pgxPool.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM auth_schema.users WHERE login=$1);", login).Scan(exists)
+	return exists
+}
+
 func (p PGXPool) Close() {
 	p.pgxPool.Close()
 }
