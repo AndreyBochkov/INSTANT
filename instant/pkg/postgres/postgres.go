@@ -92,7 +92,7 @@ func (p PGXPool) InsertChat(id1, id2 int, label1, label2 string) (int, error) {
 }
 
 func (p PGXPool) GetMessageListByUserIDAndChatIDAndParam(userID, chatID, offset int) ([]Message, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, sender=$1 AS mine FROM chat_schema.messages WHERE chatid=$2 ORDER BY ts DESC LIMIT 20 OFFSET $4;", userID, chatID, offset*20)
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, sender=$1 AS mine FROM chat_schema.messages WHERE chatid=$2 ORDER BY ts DESC LIMIT 20 OFFSET $3;", userID, chatID, offset*20)
 	if err != nil {
 		return nil, err
 	}
