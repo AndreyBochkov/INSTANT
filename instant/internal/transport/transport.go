@@ -82,7 +82,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		payload, err := iaes.Decrypt(sessionKey, enc)
-		if err != nil && err != iaes.ZeroLengthCiphertextError {
+		if err != nil && !errors.Is(err, iaes.ZeroLengthCiphertextError) {
 			logger.Warn(ctx, "InstAES decoding error", zap.Error(err))
 			conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
 			return
