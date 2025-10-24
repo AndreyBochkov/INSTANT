@@ -9,92 +9,72 @@ import (
 	"instant_service/pkg/postgres"
 )
 
-var (
-	handshakeFault = errors.New("Invalid handshake pattern")
-	tokenExpiredError = errors.New("Token expired")
-	invalidVersionError = errors.New("Invalid version")
-	verificationError = errors.New("Verification error")
-)
-
-type parsedHSPayload struct {
-	id				int
-	ts				int64
-	iKey			[]byte
-	bobPublic		[]byte
-	sharedPre		[]byte
-}
-
-type SecureConn struct {
-	conn		*websocket.Conn
-	sessionKey	[]byte
-}
-
 type Transport struct {
-	pool				postgres.PGXPool
-	version				int
-	rotationInterval	int
-
 	sync.Mutex
-	connmap				map[int]SecureConn
+	connmap				map[int](*SecureConn)
+
+	pool				postgres.PGXPool
 }
 
-type RegisterRequest struct { //17
+type RegisterRequest struct { //11
 	Login		string	`json:"login"`
 }
 
-// type RegisterResponse [ackbyte] //18
+// type GetChatsRequest [ackbyte] { //12
 
-// =====REQUESTS SECTION=====
-
-// type GetChatsRequest [ackbyte] { //11
-
-type SearchRequest struct { //12
+type SearchRequest struct { //13
 	Query		string	`json:"query"`
 }
 
-type NewChatRequest struct { //13
-	User2		int		`json:"user2"`
+type GetPropertiesRequest struct { // 14
+	ChatID		int		`json:"chatid"`
 }
 
-type GetMessagesRequest struct { //14
+type NewChatRequest struct { //15
+	Admins		[]int	`json:"admins"`
+	Listeners	[]int	`json:"listeners"`
+	Label		string	`json:"label"`
+}
+
+type GetMessagesRequest struct { //16
 	ChatID		int		`json:"chatid"`
 	Offset		int		`json:"offset"`
 }
 
-type SendMessageRequest struct { //15
-	Receiver	int		`json:"receiver"`
+type SendMessageRequest struct { //17
 	ChatID		int		`json:"chatid"`
 	Body		string	`json:"body"`
 }
 
-type SyncRequest struct { //http
-	Handshake	[]byte	`json:"handshake"`
-}
-
-type ChangeIKeyRequest struct { //16
+type ChangeIKeyRequest struct { //50
 	New			[]byte	`json:"new"`
 }
 
-// =====RESPONSES SECTION=====
+// type RegisterResponse [ackbyte] //51
 
-// type GetChatsResponse []postgres.Chat //51
+// type GetChatsResponse []postgres.Chat //52
 
-// type SearchResponse []postgres.User //52
+// type SearchResponse []postgres.User //53
 
-// type NewChatResponse postgres.Chat //53
+type GetPropertiesResponse struct { // 54
+	ChatID		int					`json:"chatid"`
+	Admins		[]postgres.User		`json:"admins"`
+	Listeners	[]postgres.User		`json:"listeners"`
+}
 
-type GetMessagesResponse struct { //54
+// type NewChatResponse postgres.Chat //55
+
+type GetMessagesResponse struct { //56
 	ChatID		int					`json:"chatid"`
 	Messages	[]postgres.Message	`json:"messages"`
 }
 
-// type SendMessageResponse postgres.SyncMessage //55
+type SyncMessage struct { //57 SendMessageResponse //91 GotMessageAck
+	ChatID		int		`json:"chatid"`
+	MessageID	int64	`json:"messageid"`
+	Ts			int64	`json:"ts"`
+	Body		string	`json:"body"`
+	Sender		int		`json:"sender"`
+}
 
-// type ChangePasswordResponse [ackbyte] { //56
-
-// type GotMessageAck postgres.SyncMessage //91
-
-// type SyncResponse struct { //http
-// 	Handshake	[]byte	`json:"handshake"`
-// 	Messages	[]byte	`json:"messages"`
-// }
+// type ChangeIKeyResponse [ackbyte] { //90

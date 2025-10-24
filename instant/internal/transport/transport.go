@@ -6,56 +6,35 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
-	"crypto/rand"
-	"crypto/sha256"
 	"fmt"
+	"strings"
 
-	"nhooyr.io/websocket"
 	"go.uber.org/zap"
 	"github.com/jackc/pgx/v5"
-	"golang.org/x/crypto/hkdf"
 
 	"instant_service/pkg/logger"
 	"instant_service/pkg/postgres"
-	iaes "instant_service/pkg/aes"
+	"instant_service/internal/security"
 )
 
-func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithCancel(r.Context())
+func New(pool postgres.PGXPool) Transport {
+	return Transport{pool: pool, connmap: map[int](*SecureConn){}}
+}
+
+func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) error {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-		OriginPatterns: []string{"none"},
-	})
-	if err != nil {
-		logger.Warn(ctx, "Protocol upgrading error", zap.Error(err))
-		return
-	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
-
-	peerID, iKey, sessionKey, err := t.handleHandshake(ctx, conn)
-	if err != nil {
-		if errors.Is(err, invalidVersionError) {
-			logger.Info(ctx, "Old version request")
-			conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Invalid version")...))
-			return
-		}
-		logger.Warn(ctx, "Handshake error", zap.Error(err))
-		conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Invalid handshake pattern")...))
-		return
-	}
-
-	if peerID != -1 {
+	if sc.PeerID() != -1 {
 		t.Lock()
-		t.connmap[peerID] = SecureConn{conn, sessionKey}
+		t.connmap[sc.PeerID()] = sc
 		t.Unlock()
-		logger.Info(ctx, "Welcome!", zap.Int("userId", peerID))
+		logger.Info(ctx, "Welcome!", zap.Int("userId", sc.PeerID()))
 		defer func() {
 			t.Lock()
-			delete(t.connmap, peerID)
+			delete(t.connmap, sc.PeerID())
 			t.Unlock()
-			logger.Info(ctx, "Goodbye!", zap.Int("userId", peerID))
+			logger.Info(ctx, "Goodbye!", zap.Int("userId", sc.PeerID()))
 		}()
 	}
 
@@ -64,7 +43,7 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			err := conn.Ping(ctx)
+			err := sc.Ping(ctx)
 			if err != nil {
 				cancel()
 				return
@@ -72,57 +51,47 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	rotationTs := time.Now().Unix()
-
 	for {
-		_, enc, err := conn.Read(ctx)
+		payload, err := sc.SecureRecv(ctx)
 		if err != nil {
-			logger.Info(ctx, "Receive: Error", zap.Error(err))
-			return
+			return errors.New(fmt.Sprintf("Receive: Error: %w", err))
 		}
 
-		payload, err := iaes.Decrypt(sessionKey, enc)
-		if err != nil && !errors.Is(err, iaes.ZeroLengthCiphertextError) {
-			logger.Warn(ctx, "InstAES decoding error", zap.Error(err))
-			conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
-			return
-		}
+		var result security.Payload
 
-		var result []byte
-
-		switch enc[0] {
-		case 17: // Register
-			if peerID != -1 {
+		switch payload.Type {
+		case 11: // Register
+			if sc.PeerID() != -1 {
 				logger.Warn(ctx, "Register while authorized")
-				result = append([]byte{127}, []byte("Authorized")...)
+				result = security.Payload{Type: 127, Data: "Authorized"}
 				break
 			}
 			var req RegisterRequest
-			if err := json.Unmarshal(payload, &req); err != nil {
+			if err := json.Unmarshal(payload.Data, &req); err != nil {
 				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
 				break
 			}
 			if req.Login == "" {
-				result = []byte{126}
+				result = security.Payload{Type: 126, Data: ""}
 				break
 			}
 
 			if t.pool.CheckLogin(req.Login) {
 				logger.Info(ctx, "Register: Duplicated login")
-				result = []byte{125}
+				result = security.Payload{Type: 125, Data: ""}
 				break
 			}
 
-			id, err := t.pool.InsertUser(iKey, req.Login)
+			id, err := t.pool.InsertUser(sc.IKey(), req.Login)
 			if err != nil {
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
 				break
 			}
 
 			t.Lock()
-			t.connmap[id] = SecureConn{conn, sessionKey}
+			t.connmap[id] = sc
 			t.Unlock()
 			logger.Info(ctx, "Welcome!", zap.Int("userId", id))
 			defer func() {
@@ -131,310 +100,281 @@ func (t Transport) MainHandler(w http.ResponseWriter, r *http.Request) {
 				t.Unlock()
 				logger.Info(ctx, "Goodbye!", zap.Int("userId", id))
 			}()
-			peerID = id
-			result = []byte{57}
+			sc.PeerID(id)
+			result = security.Payload{Type: 51, Data: "")
 			break
-		case 11: //GetChats
-			if peerID < 0 {
+		case 12: //GetChats
+			if sc.PeerID() < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
-				result = append([]byte{127}, []byte("Unauthorized")...)
+				result = security.Payload{Type: 127, Data: "Unauthorized"}
 				break
 			}
 
-			chats, err := t.pool.GetChatListByID(peerID)
+			chats, err := t.pool.GetChatListByID(sc.PeerID())
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					result = append([]byte{51}, []byte("[]")...)
+					result = security.Payload{Type: 52, Data: "[]"}
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
 				break
 			}
 
 			jsonbytes, err := json.Marshal(chats)
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
 				break
 			}
-			result = append([]byte{51}, jsonbytes...)
+			result = security.Payload{Type: 52, Data: string(jsonbytes)}
 			break
-		case 12: //Search
-			if peerID < 0 {
+		case 13: //Search
+			if sc.PeerID() < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
-				result = append([]byte{127}, []byte("Unauthorized")...)
+				result = security.Payload{Type: 127, Data: "Unauthorized"}
 				break
 			}
 			var req SearchRequest
-			if err := json.Unmarshal(payload, &req); err != nil {
+			if err := json.Unmarshal(payload.Data, &req); err != nil {
 				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
 				break
 			}
 
-			users, err := t.pool.SearchUsersByQuery(req.Query)
+			users, err := t.pool.SearchUsersByQuery(strings.ReplaceAll(strings.ReplaceAll(req.Query, "%", "\\%"), "_", "\\_")+"%")
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					result = append([]byte{52}, []byte("[]")...)
+					result = security.Payload{Type: 53, Data: "[]"}
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
 				break
 			}
 
 			jsonbytes, err := json.Marshal(users)
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
 				break
 			}
-			result = append([]byte{52}, jsonbytes...)
+			result = security.Payload{Type: 53, Data: string(jsonbytes)}
 			break
-		case 13: //NewChat
-			if peerID < 0 {
+		case 14: //GetProperties
+			if sc.PeerID() < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
-				result = append([]byte{127}, []byte("Unauthorized")...)
+				result = security.Payload{Type: 127, Data: "Unauthorized"}
 				break
 			}
-			var req NewChatRequest
-			if err := json.Unmarshal(payload, &req); err != nil {
+			var req GetPropertiesRequest
+			if err := json.Unmarshal(payload.Data, &req); err != nil {
 				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
 				break
 			}
 
-			label1, err := t.pool.GetLoginByUserID(req.User2)
-			if err != nil {
-				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
-				break
-			}
-			
-			label2, err := t.pool.GetLoginByUserID(peerID)
-			if err != nil {
-				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
-				break
-			}
-
-			chatID, err := t.pool.InsertChat(peerID, req.User2, label1, label2)
-			if err != nil {
-				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
-				break
-			}
-
-			jsonbytes, err := json.Marshal(postgres.Chat{chatID, req.User2, label1})
-			if err != nil {
-				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
-				break
-			}
-			result = append([]byte{53}, jsonbytes...)
-
-			receiverConn, connected := t.connmap[req.User2]
-			if !connected {break}
-			jsonbytes, err = json.Marshal(postgres.Chat{chatID, peerID, label2})
-			if err != nil {
-				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				break
-			}
-			enc, err := iaes.Encrypt(receiverConn.sessionKey, jsonbytes)
-			if err != nil {
-				logger.Warn(ctx, "Encryption error", zap.Error(err))
-				break
-			}
-			receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{53}, enc...))
-			break
-		case 14: //GetMessages
-			if peerID < 0 {
-				logger.Info(ctx, "Requesting while unauthorized")
-				result = append([]byte{127}, []byte("Unauthorized")...)
-				break
-			}
-			var req GetMessagesRequest
-			if err := json.Unmarshal(payload, &req); err != nil {
-				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
-				break
-			}
-
-			messages, err := t.pool.GetMessageListByUserIDAndChatIDAndParam(peerID, req.ChatID, req.Offset)
+			isAdmin, err = t.pool.GetIsAdminByUserIDAndChatID(sc.PeerID(), req.ChatID) // Проверяем права доступа
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					result = append([]byte{54}, []byte(fmt.Sprintf(`{"chatid":%d;"messages":[]}`, req.ChatID))...)
+					result = security.Payload{Type: 124, Data: ""} // TODO: add this error
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
+				break
+			}
+
+			var (
+				admins []postgres.User
+				listeners []postgres.User
+			)
+			if isAdmin {
+				listeners, err := t.pool.GetListenersByChatID(req.ChatID)
+				if err != nil {
+					logger.Warn(ctx, "Postgres error", zap.Error(err))
+					result = security.Payload{Type: 127, Data: "Internal DB error"}
+					break
+				}
+			} else {
+				listeners = []postgres.User{}
+			}
+			admins, err := t.pool.GetAdminsByChatID(req.ChatID)
+			if err != nil {
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
+				break
+			}
+
+			jsonbytes, err := json.Marshal(GetPropertiesResponse{ChatID: req.ChatID, Admins: admins, Listeners: listeners})
+			if err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
+				break
+			}
+			result = security.Payload{Type: 54, Data: string(jsonbytes)}
+			break
+		case 15: //NewChat
+			if sc.PeerID() < 0 {
+				logger.Info(ctx, "Requesting while unauthorized")
+				result = security.Payload{Type: 127, Data: "Unauthorized"}
+				break
+			}
+			var req NewChatRequest
+			if err := json.Unmarshal(payload.Data, &req); err != nil {
+				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
+				break
+			}
+
+			req.Listeners = excludeIntersection(req.Admins, req.Listeners) // Исключим админов из слушателей на всякий случай
+
+			chatID, err := t.pool.InsertChat(append(req.Admins, sc.PeerID()), req.Listeners, req.Label)
+			if err != nil {
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
+				break
+			}
+
+			jsonbytes, err := json.Marshal(postgres.Chat{chatID, req.Label})
+			if err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
+				break
+			}
+			result = security.Payload{Type: 55, Data: string(jsonbytes)}
+
+			for _, user2 := range req.Users {
+				receiverConn, connected := t.connmap[req.User2]
+				if !connected {continue}
+				receiverConn.SecureSend(result)
+			}
+			break
+		case 16: //GetMessages
+			if sc.PeerID() < 0 {
+				logger.Info(ctx, "Requesting while unauthorized")
+				result = security.Payload{Type: 127, Data: "Unauthorized"}
+				break
+			}
+			var req GetMessagesRequest
+			if err := json.Unmarshal(payload.Data, &req); err != nil {
+				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
+				break
+			}
+
+			isAdmin, err = t.pool.GetIsAdminByUserIDAndChatID(sc.PeerID(), req.ChatID) // Проверяем права доступа
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					result = security.Payload{Type: 124, Data: ""} // TODO: add this error
+					break
+				}
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
+				break
+			}
+
+			messages, err := t.pool.GetMessageListByUserIDAndChatIDAndParam(sc.PeerID(), req.ChatID, req.Offset)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					result = security.Payload{Type: 54, Data: fmt.Sprintf(`{"chatid":%d;"messages":[]}`, req.ChatID)}
+					break
+				}
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
 				break
 			}
 
 			jsonbytes, err := json.Marshal(GetMessagesResponse{ChatID:req.ChatID, Messages:messages})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
 				break
 			}
-			result = append([]byte{54}, jsonbytes...)
+			result = security.Payload{Type: 54, Data: string(jsonbytes)}
 			break
 		case 15: //SendMessage
-			if peerID < 0 {
+			if sc.PeerID() < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
-				result = append([]byte{127}, []byte("Unauthorized")...)
+				result = security.Payload{Type: 127, Data: "Unauthorized"}
 				break
 			}
 			var req SendMessageRequest
-			if err := json.Unmarshal(payload, &req); err != nil {
+			if err := json.Unmarshal(payload.Data, &req); err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
 				break
 			}
 
-			messageID, ts, err := t.pool.InsertMessage(peerID, req.Receiver, req.ChatID, req.Body)
+			messageID, ts, err := t.pool.InsertMessage(sc.PeerID(), req.ChatID, req.Body)
 			if err != nil {
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
 				break
 			}
 
 			jsonbytes, err := json.Marshal(postgres.SyncMessage{messageID, ts, req.Body, req.ChatID})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal JSON error")...)
+				result = security.Payload{Type: 127, Data: "Internal JSON error"}
 				break
 			}
-			result = append([]byte{55}, jsonbytes...)
+			result = security.Payload{Type: 127, Data: "Unauthorized"}
 
 			receiverConn, connected := t.connmap[req.Receiver]
 			if !connected {break}
 			jsonbytes, err = json.Marshal(postgres.SyncMessage{messageID, ts, req.Body, req.ChatID})
 			if err != nil {
-				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				logger.Warn(ctx, "JSON encoder error (receiverConn)", zap.Error(err))
 				break
 			}
-			enc, err := iaes.Encrypt(receiverConn.sessionKey, jsonbytes)
-			if err != nil {
-				logger.Warn(ctx, "Encryption error", zap.Error(err))
-				break
-			}
-			receiverConn.conn.Write(context.Background(), websocket.MessageBinary, append([]byte{91}, enc...))
+			receiverConn.SecureSend(security.Payload{Type: 91, Data: string(jsonbytes)})
 			break
 		case 16:
-			if peerID < 0 {
+			if sc.PeerID() < 0 {
 				logger.Info(ctx, "Requesting while unauthorized")
-				result = append([]byte{127}, []byte("Unauthorized")...)
+				result = security.Payload{Type: 127, Data: "Unauthorized"}
 				break
 			}
 			var req ChangeIKeyRequest
-			if err := json.Unmarshal(payload, &req); err != nil {
+			if err := json.Unmarshal(payload.Data, &req); err != nil {
 				logger.Warn(ctx, "JSON decoder error", zap.Error(err))
 				break
 			}
 
-			err = t.pool.UpdateIKeyByID(peerID, req.New)
+			err = t.pool.UpdateIKeyByID(sc.PeerID(), req.New)
 			if err != nil {
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
-				result = append([]byte{127}, []byte("Internal DB error")...)
+				result = security.Payload{Type: 127, Data: "Internal DB error"}
 				break
 			}
 
-			result = []byte{56}
+			result = security.Payload{Type: 56, Data: ""}
 			break
 		default:
-			logger.Warn(ctx, "Invalid message type. Payload: " + string(payload), zap.Int("invalidMessageType", int(enc[0])))
-			return
+			return errors.New(fmt.Sprintf("Invalid message type %d during reading payload %x", enc[0], string(payload.Data)))
 		}
 
-		if len(result) > 1 {
-			if result[0] > 100 {
-				conn.Write(context.Background(), websocket.MessageBinary, result)
-				if result[0] == 127 {
-					return
-				}
-			} else {
-				resp, err := iaes.Encrypt(sessionKey, result[1:])
-				if err != nil {
-					logger.Warn(ctx, "Encryption error", zap.Error(err))
-					conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
-					return
-				}
-				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{result[0]}, resp...)); err != nil {
-					logger.Warn(ctx, "Send: Error", zap.Error(err))
-					return
-				}
+		if result.Type > 100 { // Ошибка
+			conn.RawSend(result)
+			if result.Type == 127 { // Фатальная ошибка
+				return errors.New(result.Data)
 			}
-		} else {
-			if err := conn.Write(context.Background(), websocket.MessageBinary, result); err != nil {
-				logger.Warn(ctx, "Send: Error", zap.Error(err))
-				return
-			}
-		}
-
-		if peerID != -1 {
-			now := time.Now().Unix()
-			if int(now-rotationTs) > t.rotationInterval {
-				serverRandom := make([]byte, 32)
-				rand.Read(serverRandom)
-
-				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{92}, serverRandom...)); err != nil {
-					logger.Warn(ctx, "RotateKeys: Send: Error", zap.Error(err))
-					return
-				}
-
-				hkdf.New(sha256.New, serverRandom, sessionKey, nil).Read(sessionKey)
-				rotationTs = now
-			}
+		} else  { // Не ошибка
+			conn.SecureSend(result)
 		}
 	}
 }
 
-func (t Transport) SyncHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Bad method", http.StatusBadRequest)
-		return
-	}
-
-	var req SyncRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.Warn(r.Context(), "Error in JSON decoder", zap.Error(err))
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	parsed, err := t.parsePayload(req.Handshake)
-	if err != nil || parsed.id == -1{
-		logger.Warn(r.Context(), "Handshake error", zap.Error(err))
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	messages, err := t.pool.GetSyncMessageListByReceiverIDAndAfter(parsed.id, parsed.ts)
-
-	if err != nil {
-		logger.Warn(r.Context(), "Postgres error", zap.Error(err))
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-
-	serverRandom, sessionKey := finishHandshake(parsed.sharedPre)
-
-	jsonbytes, err := json.Marshal(messages)
-	if err != nil {
-		logger.Warn(r.Context(), "JSON encoder error", zap.Error(err))
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-
-	enc, err := iaes.Encrypt(sessionKey, jsonbytes)
-	if err != nil {
-		logger.Warn(r.Context(), "INSTAES error", zap.Error(err))
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, string(append(append(parsed.bobPublic, serverRandom...), enc...)))
+func MiddlewareHandler(next func (w http.ResponseWriter, r *http.Request)) http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		guid := uuid.New().String()
+		ctx, err := logger.New(r.Context())
+		if err == nil {
+			ctx = context.WithValue(ctx, logger.RequestIDKey, guid)
+			logger.Info(ctx, "Initiating connection")
+			r = r.WithContext(ctx)
+			next(w, r)
+		}
+	})
 }

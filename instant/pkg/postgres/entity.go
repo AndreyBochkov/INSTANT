@@ -2,8 +2,8 @@ package postgres
 
 type Chat struct {
 	ChatID		int			`json:"chatid"`
-	User2		int			`json:"user2"`
 	Label		string		`json:"label"`
+	CanSend		bool		`json:"cansend"`
 }
 
 type User struct {
@@ -15,12 +15,11 @@ type Message struct {
 	MessageID	int64		`json:"messageid"`
 	Ts			int64		`json:"ts"`
 	Body		string		`json:"body"`
-	Mine		bool		`json:"mine"`
+	Sender		int			`json:"sender"`
 }
 
-type SyncMessage struct {
-	MessageID	int64		`json:"messageid"`
+type Alert struct {
+	AlertID		int			`json:"alertid"`
 	Ts			int64		`json:"ts"`
 	Body		string		`json:"body"`
-	ChatID		int			`json:"chatid"`
 }
