@@ -4,11 +4,15 @@ import (
 	"nhooyr.io/websocket"
 )
 
+var (
+	nilPayload = Payload{0, ""}
+)
+
 type SecureConn struct {
 	conn		*websocket.Conn
 	sessionKey	[]byte
-	PeerID		int
-	IKey		[]byte
+	peerID		int
+	iKey		[]byte
 }
 
 type Payload struct {

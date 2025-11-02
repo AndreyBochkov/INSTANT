@@ -11,6 +11,7 @@ body {
     min-width: 1000px;
     font-family: sans-serif;
     flex: 1 0 auto;
+    
 }
 
 @media only screen and (max-width: 1100px) {
@@ -25,14 +26,39 @@ ol {
 }
 
 .logo {
-    width: 100%;
+    display: flex;
+    max-width: 1000px;
+    font-family: sans-serif;
+    justify-content: space-between;
+    align-items: center;
     text-align: center;
-    font-size: 3em;
-    margin-block: 1em;
+    font-size: min(4vw, 37px);
+    margin: 1em auto;
+    padding-inline: 15px;
 }
 
 img {
     width: 100%;
+}
+
+.button_row {
+    background-color: #d0e8ff;
+    display: flex;
+    justify-content: center;
+}
+
+.button {
+    background-color: #fff;
+    color: #5900ff;
+    font-weight: 500;
+    padding: 1em;
+    border-radius: 1em;
+    margin: 1em;
+    transition: background-color linear .1s;
+}
+
+.button:hover {
+    background-color: #dddddd;
 }
 
 .text {

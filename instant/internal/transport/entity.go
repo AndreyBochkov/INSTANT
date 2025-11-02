@@ -1,20 +1,26 @@
 package transport
 
 import (
-	"nhooyr.io/websocket"
-
 	"errors"
 	"sync"
 
 	"instant_service/pkg/postgres"
+	"instant_service/internal/security"
 )
 
 type Transport struct {
 	sync.Mutex
-	connmap				map[int](*SecureConn)
+	connmap				map[int](*security.SecureConn)
 
 	pool				postgres.PGXPool
 }
+
+var (
+	AuthorizedError = errors.New("Authorized")
+	InternalJSONError = errors.New("Internal JSON error")
+	InternalDBError = errors.New("Internal DB error")
+	UnauthorizedError = errors.New("Unauthorized")
+)
 
 type RegisterRequest struct { //11
 	Login		string	`json:"login"`

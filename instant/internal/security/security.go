@@ -8,6 +8,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"math/big"
+	"errors"
+	"time"
+	"sync"
 
 	"nhooyr.io/websocket"
 	"go.uber.org/zap"
@@ -20,14 +23,14 @@ import (
 
 func (sc *SecureConn) SecureSend(raw Payload) error {
 	if len(raw.Data) == 0 {
-		return conn.Write(context.Background(), websocket.MessageBinary, []byte{raw.Type})
+		return (*sc).conn.Write(context.Background(), websocket.MessageBinary, []byte{raw.Type})
 	}
-	enc, err := iaes.Encrypt((*sc).sessionKey, raw.Data)
+	enc, err := iaes.Encrypt((*sc).sessionKey, []byte(raw.Data))
 	if err != nil {
 		(*sc).conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
 		return err
 	}
-	return conn.Write(context.Background(), websocket.MessageBinary, append([]byte{raw.Type}, enc...))
+	return (*sc).conn.Write(context.Background(), websocket.MessageBinary, append([]byte{raw.Type}, enc...))
 }
 
 func (sc *SecureConn) RawSend(raw Payload) error {
@@ -35,38 +38,38 @@ func (sc *SecureConn) RawSend(raw Payload) error {
 }
 
 func (sc *SecureConn) SecureRecv(ctx context.Context) (Payload, error) {
-	_, enc, err := conn.Read(ctx)
+	_, enc, err := (*sc).conn.Read(ctx)
 	if err != nil {
-		return nil, err
+		return nilPayload, err
 	}
 
 	rawTyped, err := iaes.Decrypt((*sc).sessionKey, enc)
 	if err != nil && !errors.Is(err, iaes.ZeroLengthCiphertextError) {
 		(*sc).conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
-		return nil, err
+		return nilPayload, err
 	}
-	return Payload{Type: rawTyped[0], Data: rawTyped[1:]}, nil
+	return Payload{Type: rawTyped[0], Data: string(rawTyped[1:])}, nil
 }
 
-func (sc *SecureConn) Ping(ctx Context) error {
+func (sc *SecureConn) Ping(ctx context.Context) error {
 	return (*sc).conn.Ping(ctx)
 }
 
 func (sc *SecureConn) PeerID() int {
-	return (*sc).PeerID
+	return (*sc).peerID
 }
 
-func (sc *SecureConn) PeerID(new int) {
-	(*sc).PeerID = new
+func (sc *SecureConn) SetPeerID(new int) {
+	(*sc).peerID = new
 }
 
 func (sc *SecureConn) IKey() []byte {
-	return (*sc).IKey
+	return (*sc).iKey
 }
 
 func SecurityWSHandler(rotationInterval int, version int, getIDByIKey func (iKey []byte) int, next func (ctx context.Context, sc *SecureConn) error) http.Handler {
 	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
-		ctx, := r.Context()
+		ctx := r.Context()
 
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 			InsecureSkipVerify: true,
@@ -148,12 +151,12 @@ func SecurityWSHandler(rotationInterval int, version int, getIDByIKey func (iKey
 			return
 		}
 
-		sc := &SecureConn{conn: conn, sessionKey: sessionKey, PeerID: id, IKey: iKey}
+		sc := &SecureConn{conn: conn, sessionKey: sessionKey, peerID: id, iKey: alicePublicXY}
 
 		go func () {
-			ticker := time.NewTicker(rotationInterval * time.Second)
+			ticker := time.NewTicker(time.Duration(rotationInterval) * time.Second)
 			defer ticker.Stop()
-			var mux sunc.Mutex
+			var mux sync.Mutex
 
 			for range ticker.C {
 				serverRandom := make([]byte, 32)

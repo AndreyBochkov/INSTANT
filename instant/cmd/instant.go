@@ -17,6 +17,7 @@ import (
 	"instant_service/internal/config"
 	"instant_service/pkg/postgres"
 	"instant_service/internal/transport"
+	"instant_service/internal/security"
 )
 
 func main() {
@@ -41,9 +42,19 @@ func main() {
 	}
 
 	logger.Info(ctx, "Setting up transport layer...")
-	t := transport.New(pool, cfg.Version, cfg.RotationInterval)
+	t := transport.New(pool)
 	mux := http.NewServeMux()
-	mux.Handle("/instant/", transport.MiddlewareHandler(t.MainHandler))
+	mux.Handle(
+		"/instant/", 
+		transport.MiddlewareHandler(
+			security.SecurityWSHandler(
+				cfg.RotationInterval,
+				cfg.Version,
+				pool.GetIDByIKeyUpdatingTS,
+				t.MainHandler,
+			),
+		),
+	)
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 		Handler: mux,

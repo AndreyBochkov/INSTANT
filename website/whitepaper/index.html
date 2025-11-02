@@ -9,10 +9,25 @@
     <link rel="shortcut icon" href="/INSTANT_logo.png" type="image/x-icon">
 </head>
 <body>
+    <div class="logo">
+        <img src="/INSTANT_logo.png" alt="">
+        <div><h2>Мессенджер&nbsp;INSTANT</h2><p>Быстрота.&nbsp;Безопасность.&nbsp;Минимализм.</p></div>
+    </div>
+    <div class="button_row scroll">
+        <a class="button" href="/index">
+            <span>На главную</span>
+        </a>
+        <a class="button">
+            <span>Политика конф. и Условия использования</span>
+        </a>
+        <a class="button" href="/INSTANT.apk">
+            <span>Скачать приложение</span>
+        </a>
+        <a class="button" href="/changelog">
+            <span>Список изменений</span>
+        </a>
+    </div>
     <div class="wrapper">
-        <div class="logo">
-            <a href="/index"><img src="/INSTANT.png" alt="Мессенджер INSTANT"></a>
-        </div>
         <div class="text">
             <h1>Информация о работе сервиса INSTANT.</h1>
         </div>
@@ -35,12 +50,12 @@
                     <tr>
                         <td>11..50</td>
                         <td>Запросы</td>
-                        <td>11..17</td>
+                        <td>11..17, 49, 50</td>
                     </tr>
                     <tr>
                         <td>51..90</td>
                         <td>Ответы</td>
-                        <td>51..57</td>
+                        <td>51..57, 89, 90</td>
                     </tr>
                     <tr>
                         <td>90..100</td>
@@ -50,7 +65,7 @@
                     <tr>
                         <td>101..127</td>
                         <td>Ошибки</td>
-                        <td>125..127</td>
+                        <td>124..127</td>
                     </tr>
                     <tr>
                         <td>128..255</td>
@@ -64,151 +79,135 @@
                     <tr>
                         <td>Тип сообщения</td>
                         <td>Название</td>
-                        <td>Данные</td>
                         <td>Зашифровано?</td>
                     </tr>
                     <tr>
                         <td colspan="2">client_hello</td>
-                        <td>[version][clientIK][clientSigned][clientSignature]</td>
                         <td class="attention">Нет</td>
                     </tr>
                     <tr>
                         <td>0, 1</td>
                         <td>server_hello</td>
-                        <td>[serverPublic][serverRandom]</td>
                         <td class="attention">Нет</td>
                     </tr>
                     <tr>
                         <td>11</td>
-                        <td>GetChatsRequest</td>
-                        <td colspan="2">&lt;пусто&gt;</td>
-                    </tr>
-                    <tr>
-                        <td>12</td>
-                        <td>SearchRequest</td>
-                        <td>{"query":""}</td>
+                        <td>RegisterRequest</td>
                         <td>Да</td>
                     </tr>
                     <tr>
+                        <td>12</td>
+                        <td>GetChatsRequest</td>
+                        <td>&lt;пусто&gt;</td>
+                    </tr>
+                    <tr>
                         <td>13</td>
-                        <td>NewChatRequest</td>
-                        <td>{"user2":0}</td>
+                        <td>SearchRequest</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>14</td>
-                        <td>GetMessagesRequest</td>
-                        <td>{"chatid":0;"offset":0}</td>
+                        <td>GetPropertiesRequest</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>15</td>
-                        <td>SendMessageRequest</td>
-                        <td>{"receiver":0;"chatid":0;"body":""}</td>
+                        <td>NewChatRequest</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>16</td>
-                        <td>ChangeIKeyRequest</td>
-                        <td>{"new":[0,0...]}</td>
+                        <td>GetMessagesRequest</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>17</td>
-                        <td>RegisterRequest</td>
-                        <td>{"login":""}</td>
+                        <td>SendMessageRequest</td>
+                        <td>Да</td>
+                    </tr>
+                    <tr>
+                        <td>49</td>
+                        <td>GetAlertsRequest</td>
+                        <td>Да</td>
+                    </tr>
+                    <tr>
+                        <td>50</td>
+                        <td>ChangeIKeyRequest</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>51</td>
-                        <td>GetChatsResponse</td>
-                        <td>[{"chatid":0,"user2":0,"label":""}...]</td>
-                        <td>Да</td>
+                        <td>RegisterAcknowledgement</td>
+                        <td>&lt;пусто&gt;</td>
                     </tr>
                     <tr>
                         <td>52</td>
-                        <td>SearchResponse</td>
-                        <td>[{"userid":0,"login":""}...]</td>
+                        <td>GetChatsResponse</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>53</td>
-                        <td>NewChatResponse / NewChatAcknowledgement</td>
-                        <td>{"chatid":0,"user2":0,"label":""}</td>
+                        <td>SearchResponse</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>54</td>
-                        <td>GetMessagesResponse</td>
-                        <td>{"chatid":0,"messages":[{"messageid":0,"ts":0,"body":"",mine:false}...]}</td>
+                        <td>GetPropertiesResponse</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>55</td>
-                        <td>SendMessageResponse</td>
-                        <td>{"messageid":0,"ts":0,"body":"","chatid":0}</td>
+                        <td>NewChatResponse / NewChatAcknowledgement</td>
                         <td>Да</td>
                     </tr>
                     <tr>
                         <td>56</td>
-                        <td>ChangeIKeyAcknowledgement</td>
-                        <td colspan="2">&lt;пусто&gt;</td>
+                        <td>GetMessagesResponse</td>
+                        <td>Да</td>
                     </tr>
                     <tr>
                         <td>57</td>
-                        <td>RegisterAcknowledgement</td>
-                        <td colspan="2">&lt;пусто&gt;</td>
+                        <td>SendMessageResponse</td>
+                        <td>Да</td>
+                    </tr>
+                    <tr>
+                        <td>89</td>
+                        <td>GetAlertsResponse</td>
+                        <td>Да</td>
+                    </tr>
+                    <tr>
+                        <td>90</td>
+                        <td>ChangeIKeyAcknowledgement</td>
+                        <td>&lt;пусто&gt;</td>
                     </tr>
                     <tr>
                         <td>91</td>
                         <td>GotMessageAcknowledgement</td>
-                        <td>{"messageid":0,"ts":0,"body":"","chatid":0}</td>
                         <td>Да</td>
                     </tr>
                     <tr>
-                        <td>92</td>
+                        <td>100</td>
                         <td>RotateKey</td>
-                        <td>[serverRandom]</td>
                         <td class="attention">Нет</td>
+                    </tr>
+                    <tr>
+                        <td>124</td>
+                        <td>AccessDeniedError</td>
+                        <td>&lt;пусто&gt;</td>
                     </tr>
                     <tr>
                         <td>125</td>
                         <td>DuplicatedLoginError</td>
-                        <td colspan="2">&lt;пусто&gt;</td>
+                        <td>&lt;пусто&gt;</td>
                     </tr>
                     <tr>
                         <td>126</td>
                         <td>EmptyCredentialsError</td>
-                        <td colspan="2">&lt;пусто&gt;</td>
+                        <td>&lt;пусто&gt;</td>
                     </tr>
                     <tr>
                         <td>127</td>
                         <td>FATAL</td>
-                        <td>Invalid version</td>
-                        <td class="attention">Нет</td>
-                    </tr>
-                    <tr>
-                        <td>127</td>
-                        <td>FATAL</td>
-                        <td>Invalid handshake pattern</td>
-                        <td class="attention">Нет</td>
-                    </tr>
-                    <tr>
-                        <td>127</td>
-                        <td>FATAL</td>
-                        <td>Authorized</td>
-                        <td class="attention">Нет</td>
-                    </tr>
-                    <tr>
-                        <td>127</td>
-                        <td>FATAL</td>
-                        <td>Internal JSON error</td>
-                        <td class="attention">Нет</td>
-                    </tr>
-                    <tr>
-                        <td>127</td>
-                        <td>FATAL</td>
-                        <td>Unauthorized</td>
                         <td class="attention">Нет</td>
                     </tr>
                 </table>
@@ -217,16 +216,17 @@
         <div class="text">
             <h2>2. Безопасный обмен данными.</h2>
             <p>При первом входе в приложение генерируется пара идентификационных ключей подписи. Теперь вся идентификация пользователя на сервере будет заключаться в сверке публичных идентификационных ключей (IKey, Identity Key).</p>
-            <p>В первом пакете, "client_hello", клиент отправляет на сервер версию протокола, свой публичный IK, подписанный сессионный ключ и его подпись (сгенерированную приватным IK). Сервер, получив запрос на рукопожатие, проверяет подписи, генерирует 32 байта энтропии - serverRandom, и свою пару ключей, отправляя клиенту сообщение с типом '0', в качестве данных прилагая свой публичный ключ и serverRandom. Теперь и клиент, и сервер располагают данными для создания общего секрета, притом <span class="attention">фальсификация невозможна благодаря подписи</span>, и сервер уже знает, кто к нему обратился. Если нет, сервер ожидает запроса 17 (RegisterRequest).</p>
-            <p>Затем, в процессе обмена данными, сервер может инициировать ротацию ключей. Для этого он отправляет сообщение с типом 92 (RotateKey) и заменяет свой ключ, регенерируя его из старого с новым serverRandom. Таким образом, протокол INSTANT обеспечивает <span class="attention">совершенную прямую секретность, рукопожатие за 2 пакета и ротацию ключей за 1</span>.</p>
+            <p>В первом пакете, "client_hello", клиент отправляет на сервер версию протокола, свой публичный IK, подписанный сессионный ключ и его подпись (сгенерированную приватным IK). Сервер, получив запрос на рукопожатие, проверяет подписи, генерирует 32 байта энтропии - serverRandom, и свою пару ключей, отправляя клиенту сообщение с типом '0', в качестве данных прилагая свой публичный ключ и serverRandom. Теперь и клиент, и сервер располагают данными для создания общего секрета, притом <span class="attention">фальсификация невозможна благодаря подписи</span>, и сервер уже знает, кто к нему обратился. Если нет, сервер ожидает запроса 11 (RegisterRequest).</p>
+            <p>Затем, в процессе обмена данными, сервер может инициировать ротацию ключей. Для этого он отправляет сообщение с типом 100 (RotateKey) и заменяет свой ключ, регенерируя его из старого с новым serverRandom. Таким образом, протокол INSTANT обеспечивает <span class="attention">прямую секретность, рукопожатие с идентификацией за 2 пакета (161 б, 96 б) и ротацию ключей за 1 (32 б)</span>.</p>
         </div>
         <div class="text">
             <h2>3. Безопасность данных на сервере.</h2>
             <p>В INSTANT нет паролей, значит, нечего терять и отдавать. Вся идентификация построена на уникальных ключах. <span class="attention">Никто не может получить доступ к какому-либо аккаунту, располагая хоть всей базой данных публичных ключей</span>. Даже вы, если очистите данные приложения. По смене ключа ограничений нет, рекомендуется делать это раз в несколько недель.</p>
+            <p>Не полагайтесь на безопасность данных на сервере. Все уязвимости нулевого дня будут как можно быстрее закрываться, всё ПО будет обновлено, однако <span class="attention">взлом всё равно возможен</span>.</p>
         </div>
         <div class="text">
             <h2>4. Технические ограничения.</h2>
-            <p>Смартфоны убивают фоновые подключения. Неоправданно безжалостно, но зато это гарантия дискретности веб-взаимодействий. Необходимо вписаться в это требование, и пока <span class="attention">я не знаю, как</span>. Увы! <span class="attention">Синхронизации сообщений в фоне нет</span>, чтобы проверить наличие новых, надо открыть приложение. Но если оба пользователя в сети, то устанавливается связь "в реальном времени". Следите за обновлениями на этом сайте.</p>
+            <p>Смартфоны убивают фоновые подключения. Неоправданно безжалостно, но зато это гарантия дискретности веб-взаимодействий. Необходимо вписаться в это требование, и пока <span class="attention">я не знаю, как</span>. Увы! <span class="attention">Синхронизации сообщений в фоне нет</span>, чтобы проверить наличие новых, надо открыть приложение. Но если какие-либо пользователи группы в сети, то устанавливается связь "в реальном времени". Следите за обновлениями на этом сайте.</p>
         </div>
     </div>
     <footer>

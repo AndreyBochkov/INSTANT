@@ -6,6 +6,7 @@ RUN go mod download
 COPY ./cmd/* ./cmd/
 COPY ./internal/config/* ./internal/config/
 COPY ./internal/transport/* ./internal/transport/
+COPY ./internal/security/* ./internal/security/
 COPY ./pkg/aes/* ./pkg/aes/
 COPY ./pkg/logger/* ./pkg/logger/
 COPY ./pkg/postgres/* ./pkg/postgres/

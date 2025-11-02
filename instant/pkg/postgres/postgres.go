@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"context"
 	"errors"
-	"time"
 	"instant_service/internal/config"
 	migrate "github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -86,7 +85,7 @@ func (p PGXPool) SearchUsersByQuery(query string) ([]User, error) {
 }
 
 func (p PGXPool) GetIsAdminByUserIDAndChatID(userid int, chatid int) (bool, error) {
-	isAdmin := false,
+	isAdmin := false
 	err := p.pgxPool.QueryRow(context.Background(), "SELECT role = 'admin'::chatrole AS isadmin FROM chat_schema.ties WHERE userid = $1 AND chatid = $2;", userid, chatid).Scan(&isAdmin)
 	return isAdmin, err
 }
@@ -109,18 +108,12 @@ func (p PGXPool) GetAdminsByChatID(chatid int) ([]User, error) {
 
 func (p PGXPool) InsertChat(admins []int, listeners []int, label string) (int, error) {
 	chatID := 0
-	err := p.pgxPool.QueryRow(context.Background(), "WITH g AS (INSERT INTO chat_schema.groups (label) VALUES ($2) RETURNING chatid), u AS (INSERT INTO chat_schema.ties (chatid, userid, role) SELECT g.chatid, unnest($1), 'admin' FROM g RETURNING chatid) SELECT chatid FROM g;", admins, label).Scan(&chatID)
+	err := p.pgxPool.QueryRow(context.Background(), "WITH g AS (INSERT INTO chat_schema.groups (label) VALUES ($3) RETURNING chatid), u AS (INSERT INTO chat_schema.ties (chatid, userid, role) SELECT g.chatid, unnest($1), 'admin'::chatrole FROM g UNION ALL SELECT g.chatid, unnest($2), 'listener'::chatrole FROM g RETURNING chatid) SELECT chatid FROM g;", admins, listeners, label).Scan(&chatID)
 	return chatID, err
 }
 
-func (p PGXPool) InsertChannel(admin int, , label string) (int, error) {
-	chatID := 0
-	err := p.pgxPool.QueryRow(context.Background(), "WITH c AS (INSERT INTO chat_schema.groups (label) VALUES ($3) RETURNING chatid), u AS (INSERT INTO chat_schema.ties (chatid, userid, role) SELECT c.chatid, userid, role FROM c CROSS JOIN (SELECT $1 AS userid, 'admin'::chatrole AS role UNION ALL SELECT unnest($2), 'listener') users RETURNING chatid) SELECT chatid FROM c;", admin, listeners, label).Scan(&chatID)
-	return chatID, err
-}
-
-func (p PGXPool) GetMessageListByUserIDAndChatIDAndParam(userID, chatID, offset int) ([]Message, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, sender FROM chat_schema.broadcasts WHERE chatid=$1 ORDER BY ts DESC LIMIT 20 OFFSET $2;", chatID, offset*20)
+func (p PGXPool) GetMessageListByChatIDAndParam(chatID, offset int) ([]Message, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT messageid, ts, body, sender FROM chat_schema.broadcasts WHERE chatid=$1 ORDER BY ts DESC LIMIT 21 OFFSET $2;", chatID, offset*21)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +125,12 @@ func (p PGXPool) InsertMessage(senderID, chatID int, body string) (int64, int64,
 	ts := int64(0)
 	err := p.pgxPool.QueryRow(context.Background(), "INSERT INTO chat_schema.broadcasts (chatid, body, sender) VALUES ($1, $2, $3) RETURNING messageid, ts;", chatID, body, senderID).Scan(&messageID, &ts)
 	return messageID, ts, err
+}
+
+func (p PGXPool) GetUsersByChatID(chatID int) []int {
+	users := []int{}
+	p.pgxPool.QueryRow(context.Background(), "SELECT ARRAY(SELECT t.userid FROM chat_schema.ties t WHERE t.chatid = $1);", chatID).Scan(&users)
+	return users
 }
 
 func (p PGXPool) UpdateIKeyByID(userID int, iKey []byte) error {
@@ -148,7 +147,7 @@ func (p PGXPool) GetIDByIKeyUpdatingTS(iKey []byte) int {
 // =====
 
 func (p PGXPool) InsertAlert(userID int, body string) error {
-	_, err = p.pgxPool.Exec(context.Background(), "INSERT INTO auth_schema.alerts (userid, body) VALUES ($1, $2);", userID, body)
+	_, err := p.pgxPool.Exec(context.Background(), "INSERT INTO auth_schema.alerts (userid, body) VALUES ($1, $2);", userID, body)
 	return err
 }
 
@@ -161,12 +160,6 @@ func (p PGXPool) GetAlertsByID(userID int) ([]Alert, error) {
 }
 
 // =====
-
-func (p PGXPool) GetLoginByUserID(userID int) (string, error) {
-	login := ""
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT login FROM auth_schema.users WHERE id = $1;", userID).Scan(&login)
-	return login, err
-}
 
 func (p PGXPool) CheckLogin(login string) bool {
 	exists := false
