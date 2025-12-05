@@ -1,3 +1,7 @@
+* {
+    font-family: sans-serif;
+}
+
 body {
     margin: 0;
     min-height: 100vh;
@@ -8,10 +12,8 @@ body {
 .wrapper {
     margin-inline: auto;
     max-width: 50vw;
-    min-width: 1000px;
-    font-family: sans-serif;
+    min-width: 1100px;
     flex: 1 0 auto;
-    
 }
 
 @media only screen and (max-width: 1100px) {
@@ -27,24 +29,29 @@ ol {
 
 .logo {
     display: flex;
-    max-width: 1000px;
-    font-family: sans-serif;
-    justify-content: space-between;
+    max-width: 1100px;
+    justify-content: center;
     align-items: center;
     text-align: center;
-    font-size: min(4vw, 37px);
+    font-size: min(3.5vw, 38.5px);
     margin: 1em auto;
-    padding-inline: 15px;
+    padding-inline: 1em;
 }
 
-img {
-    width: 100%;
+.logo img {
+    width: min(20vw, 220px);
 }
 
 .button_row {
-    background-color: #d0e8ff;
     display: flex;
-    justify-content: center;
+    margin-inline: auto;
+    width: fit-content;
+}
+
+.button_wrap {
+    background-color: #d0e8ff;
+    padding: 1em 0 1em 1em;
+    overflow-x: scroll;
 }
 
 .button {
@@ -53,7 +60,7 @@ img {
     font-weight: 500;
     padding: 1em;
     border-radius: 1em;
-    margin: 1em;
+    margin-right: 1em;
     transition: background-color linear .1s;
 }
 
@@ -76,7 +83,7 @@ img {
 
 td {
     border: 1px solid black;
-    border-radius: .2em;
+    border-radius: 3px;
 }
 
 .text * {

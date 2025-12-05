@@ -364,7 +364,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 				if user == sc.PeerID() {continue}
 				receiverConn, connected := t.connmap[user]
 				if !connected {continue}
-				receiverConn.SecureSend(security.Payload{Type: 91, Data: string(jsonbytes)})
+				receiverConn.SecureSend(security.Payload{Type: 57, Data: string(jsonbytes)})
 			}
 			break
 		
@@ -418,7 +418,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 			sc.SecureSend(security.Payload{Type: 90, Data: ""})
 			break
 		default:
-			return errors.New(fmt.Sprintf("Invalid message type %d during reading payload %x", payload.Type, string(payload.Data)))
+			return errors.New(fmt.Sprintf("Invalid message type %d during reading payload %x", payload.Type, []byte(payload.Data)))
 		}
 	}
 }

@@ -108,7 +108,7 @@ func (p PGXPool) GetAdminsByChatID(chatid int) ([]User, error) {
 
 func (p PGXPool) InsertChat(admins []int, listeners []int, label string) (int, error) {
 	chatID := 0
-	err := p.pgxPool.QueryRow(context.Background(), "WITH g AS (INSERT INTO chat_schema.groups (label) VALUES ($3) RETURNING chatid), u AS (INSERT INTO chat_schema.ties (chatid, userid, role) SELECT g.chatid, unnest($1), 'admin'::chatrole FROM g UNION ALL SELECT g.chatid, unnest($2), 'listener'::chatrole FROM g RETURNING chatid) SELECT chatid FROM g;", admins, listeners, label).Scan(&chatID)
+	err := p.pgxPool.QueryRow(context.Background(), "WITH g AS (INSERT INTO chat_schema.groups (label) VALUES ($3) RETURNING chatid), u AS (INSERT INTO chat_schema.ties (chatid, userid, role) SELECT g.chatid, unnest($1::int[]), 'admin'::chatrole FROM g UNION ALL SELECT g.chatid, unnest($2::int[]), 'listener'::chatrole FROM g RETURNING chatid) SELECT chatid FROM g;", admins, listeners, label).Scan(&chatID)
 	return chatID, err
 }
 
@@ -140,7 +140,7 @@ func (p PGXPool) UpdateIKeyByID(userID int, iKey []byte) error {
 
 func (p PGXPool) GetIDByIKeyUpdatingTS(iKey []byte) int {
 	id := -1
-	p.pgxPool.QueryRow(context.Background(), "UPDATE auth_schema.users SET ts=(EXTRACT(EPOCH FROM NOW())) FROM oldvalues WHERE ikey=$1 RETURNING id;", iKey).Scan(&id)
+	p.pgxPool.QueryRow(context.Background(), "UPDATE auth_schema.users SET ts=(EXTRACT(EPOCH FROM NOW())) WHERE ikey=$1 RETURNING id;", iKey).Scan(&id)
 	return id
 }
 
@@ -152,7 +152,7 @@ func (p PGXPool) InsertAlert(userID int, body string) error {
 }
 
 func (p PGXPool) GetAlertsByID(userID int) ([]Alert, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "UPDATE auth_schema.alerts SET opened = TRUE WHERE userid = $1 AND opened = FALSE RETURNING alertid, ts, body;", userID)
+	rows, err := p.pgxPool.Query(context.Background(), "UPDATE auth_schema.alerts SET opened = TRUE WHERE userid = $1 RETURNING alertid, ts, body;", userID)
 	if err != nil {
 		return nil, err
 	}

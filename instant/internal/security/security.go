@@ -48,7 +48,7 @@ func (sc *SecureConn) SecureRecv(ctx context.Context) (Payload, error) {
 		(*sc).conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
 		return nilPayload, err
 	}
-	return Payload{Type: rawTyped[0], Data: string(rawTyped[1:])}, nil
+	return Payload{Type: enc[0], Data: string(rawTyped)}, nil
 }
 
 func (sc *SecureConn) Ping(ctx context.Context) error {
@@ -164,7 +164,7 @@ func SecurityWSHandler(rotationInterval int, version int, getIDByIKey func (iKey
 
 				mux.Lock()
 				hkdf.New(sha256.New, serverRandom, (*sc).sessionKey, nil).Read((*sc).sessionKey)
-				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{92}, serverRandom...)); err != nil {
+				if err := conn.Write(context.Background(), websocket.MessageBinary, append([]byte{100}, serverRandom...)); err != nil {
 					logger.Warn(ctx, "RotateKey: Send: Error", zap.Error(err))
 					return
 				}

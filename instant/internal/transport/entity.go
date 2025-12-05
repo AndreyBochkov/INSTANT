@@ -52,6 +52,8 @@ type SendMessageRequest struct { //17
 	Body		string	`json:"body"`
 }
 
+// type GetAlertsRequest [ackbyte] //49
+
 type ChangeIKeyRequest struct { //50
 	New			[]byte	`json:"new"`
 }
@@ -82,5 +84,7 @@ type SyncMessage struct { //57 SendMessageResponse //91 GotMessageAck
 	Body		string	`json:"body"`
 	Sender		int		`json:"sender"`
 }
+
+// type GetAlertsResponse []postgres.Alert //89
 
 // type ChangeIKeyResponse [ackbyte] { //90
