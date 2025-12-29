@@ -14,6 +14,7 @@ body {
     max-width: 50vw;
     min-width: 1100px;
     flex: 1 0 auto;
+    margin-bottom: 1em;
 }
 
 @media only screen and (max-width: 1100px) {
@@ -40,6 +41,7 @@ ol {
 
 .logo img {
     width: min(20vw, 220px);
+    margin-right: 1em;
 }
 
 .button_row {
@@ -52,6 +54,7 @@ ol {
     background-color: #d0e8ff;
     padding: 1em 0 1em 1em;
     overflow-x: scroll;
+    margin-bottom: 1em;
 }
 
 .button {
@@ -73,7 +76,7 @@ ol {
     font-weight: 500;
     padding: 1em;
     border-radius: 1em;
-    margin: 1em;
+    margin: 0 1em 1em 1em;
 }
 
 .scroll {
