@@ -59,13 +59,6 @@ func (p PGXPool) InsertUser(iKey []byte, login string) (int, error) {
 	return id, err
 }
 
-func (p PGXPool) GetIDAndIKeyByLogin(login string) (int, []byte, error) {
-	id := -1
-	iKey := []byte{}
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT id, ikey FROM auth_schema.users WHERE login=$1;", login).Scan(&id, &iKey)
-	return id, iKey, err
-}
-
 // =====
 
 func (p PGXPool) GetChatListByID(userID int) ([]Chat, error) {
@@ -160,6 +153,12 @@ func (p PGXPool) GetAlertsByID(userID int) ([]Alert, error) {
 }
 
 // =====
+
+func (p PGXPool) GetLoginByID(userID int) string {
+	login := ""
+	p.pgxPool.QueryRow(context.Background(), "SELECT login FROM auth_schema.users WHERE id=$1;", userID).Scan(&login)
+	return login
+}
 
 func (p PGXPool) CheckLogin(login string) bool {
 	exists := false

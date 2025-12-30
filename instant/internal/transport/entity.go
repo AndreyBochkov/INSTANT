@@ -77,7 +77,7 @@ type GetMessagesResponse struct { //56
 	Messages	[]postgres.Message	`json:"messages"`
 }
 
-type SyncMessage struct { //57 SendMessageResponse //91 GotMessageAck
+type SyncMessage struct { //57 SendMessageResponse
 	ChatID		int		`json:"chatid"`
 	MessageID	int64	`json:"messageid"`
 	Ts			int64	`json:"ts"`
@@ -88,3 +88,14 @@ type SyncMessage struct { //57 SendMessageResponse //91 GotMessageAck
 // type GetAlertsResponse []postgres.Alert //89
 
 // type ChangeIKeyResponse [ackbyte] { //90
+
+type WhoAmI struct { //91
+	Login		string	`json:"login"`
+	Id			int		`json:"id"`
+}
+
+// type FATAL string //127
+// type EmptyCredentials [ackbyte] //126
+// type DuplicatedLogin [ackbyte] //125
+// type AccessDenied [ackbyte] //124
+// type LoginDenied [ackbyte] //123

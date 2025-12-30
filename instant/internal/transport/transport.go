@@ -31,6 +31,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 		t.connmap[sc.PeerID()] = sc
 		t.Unlock()
 		logger.Info(ctx, "Welcome!", zap.Int("userId", sc.PeerID()))
+
 		defer func() {
 			t.Lock()
 			delete(t.connmap, sc.PeerID())
@@ -71,6 +72,23 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
 				return InternalJSONError
 			}
+			
+			restricted := false
+			for _, r := range req.Login {
+				if !((r >= 'a' && r <= 'z') || 
+					 (r >= 'A' && r <= 'Z') || 
+					 (r >= '0' && r <= '9') || 
+					 (r == '_')) {
+					restricted = true
+					break
+				}
+			}
+			if restricted {
+				logger.Info(ctx, fmt.Sprintf("Register: Restricted login: %s", req.Login))
+				sc.RawSend(security.Payload{Type: 123, Data: ""})
+				break
+			}
+
 			if req.Login == "" {
 				sc.RawSend(security.Payload{Type: 126, Data: ""})
 				break
@@ -90,17 +108,27 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 			}
 
 			t.Lock()
-			t.connmap[id] = sc
+			t.connmap[sc.PeerID()] = sc
 			t.Unlock()
-			logger.Info(ctx, "Welcome!", zap.Int("userId", id))
+			logger.Info(ctx, "Welcome!", zap.Int("userId", sc.PeerID()))
+			
 			defer func() {
 				t.Lock()
-				delete(t.connmap, id)
+				delete(t.connmap, sc.PeerID())
 				t.Unlock()
-				logger.Info(ctx, "Goodbye!", zap.Int("userId", id))
+				logger.Info(ctx, "Goodbye!", zap.Int("userId", sc.PeerID()))
 			}()
+
 			sc.SetPeerID(id)
-			sc.SecureSend(security.Payload{Type: 51, Data: ""})
+
+			jsonbytes, err := json.Marshal(WhoAmI{Login: t.pool.GetLoginByID(id), Id: id})
+			if err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
+				return InternalJSONError
+			}
+
+			sc.SecureSend(security.Payload{Type: 51, Data: string(jsonbytes)})
 			break
 		case 12: //GetChats
 			if sc.PeerID() < 0 {
@@ -253,7 +281,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 				receiverConn.SecureSend(adminAck)
 			}
 
-			listenerjsonbytes, err := json.Marshal(postgres.Chat{chatID, req.Label, true})
+			listenerjsonbytes, err := json.Marshal(postgres.Chat{chatID, req.Label, false})
 			if err != nil {
 				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
 				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
@@ -366,6 +394,15 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 				if !connected {continue}
 				receiverConn.SecureSend(security.Payload{Type: 57, Data: string(jsonbytes)})
 			}
+			break
+		case 48: // WhoAmI
+			jsonbytes, err := json.Marshal(WhoAmI{Login: t.pool.GetLoginByID(sc.PeerID()), Id: sc.PeerID()})
+			if err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
+				return InternalJSONError
+			}
+			sc.SecureSend(security.Payload{Type: 88, Data: string(jsonbytes)})
 			break
 		
 		// TODO: как добавлять оповещения? Пока что через консоль...
