@@ -62,7 +62,7 @@ func (p PGXPool) InsertUser(iKey []byte, login string) (int, error) {
 // =====
 
 func (p PGXPool) GetChatListByID(userID int) ([]Chat, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "WITH t AS (SELECT chatid, role FROM chat_schema.ties WHERE userid = $1) SELECT t.chatid, g.label, (t.role = 'admin') AS cansend FROM t JOIN chat_schema.groups g ON g.chatid = t.chatid;", userID)
+	rows, err := p.pgxPool.Query(context.Background(), "WITH t AS (SELECT chatid, role FROM chat_schema.ties WHERE userid = $1) SELECT t.chatid, g.label, (t.role = 'admin') AS cansend FROM t JOIN chat_schema.groups g ON g.chatid = t.chatid AND g.deleted = FALSE;", userID)
 	if err != nil {
 		return nil, err
 	}

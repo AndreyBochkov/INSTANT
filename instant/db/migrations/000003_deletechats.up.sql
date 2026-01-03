@@ -1,0 +1,1 @@
+ALTER TABLE chat_schema.groups ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT FALSE;

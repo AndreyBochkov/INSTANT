@@ -1,0 +1,1 @@
+ALTER TABLE chat_schema.groups DROP COLUMN deleted;
