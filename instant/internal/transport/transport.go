@@ -53,6 +53,8 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 		}
 	}()
 
+	// TODO: [развести все эп по разным функциям и ]добавить большой общий канал с новостями
+
 	for {
 		payload, err := sc.SecureRecv(ctx)
 		if err != nil {
@@ -108,15 +110,15 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 			}
 
 			t.Lock()
-			t.connmap[sc.PeerID()] = sc
+			t.connmap[id] = sc
 			t.Unlock()
-			logger.Info(ctx, "Welcome!", zap.Int("userId", sc.PeerID()))
+			logger.Info(ctx, "Welcome!", zap.Int("userId", id))
 			
 			defer func() {
 				t.Lock()
-				delete(t.connmap, sc.PeerID())
+				delete(t.connmap, id)
 				t.Unlock()
-				logger.Info(ctx, "Goodbye!", zap.Int("userId", sc.PeerID()))
+				logger.Info(ctx, "Goodbye!", zap.Int("userId", id))
 			}()
 
 			sc.SetPeerID(id)
@@ -204,7 +206,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 			isAdmin, err := t.pool.GetIsAdminByUserIDAndChatID(sc.PeerID(), req.ChatID) // Проверяем права доступа
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					sc.RawSend(security.Payload{Type: 124, Data: ""})
+					sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
@@ -256,7 +258,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 
 			req.Listeners = excludeIntersection(req.Admins, req.Listeners) // Исключим админов из слушателей на всякий случай
 
-			// TODO: проверять идентификаторы пользователей на реальность
+			// TODO: проверять идентификаторы пользователей на реальность и исключать повторяющиеся (как?)
 
 			chatID, err := t.pool.InsertChat(append(req.Admins, sc.PeerID()), req.Listeners, req.Label)
 			if err != nil {
@@ -318,7 +320,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 			_, err = t.pool.GetIsAdminByUserIDAndChatID(sc.PeerID(), req.ChatID) // Проверяем права доступа
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					sc.RawSend(security.Payload{Type: 124, Data: ""})
+					sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
@@ -361,7 +363,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 			isAdmin, err := t.pool.GetIsAdminByUserIDAndChatID(sc.PeerID(), req.ChatID) // Проверяем права доступа
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					sc.RawSend(security.Payload{Type: 124, Data: ""})
+					sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
 					break
 				}
 				logger.Warn(ctx, "Postgres error", zap.Error(err))
@@ -369,7 +371,7 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 				return InternalDBError
 			}
 			if !isAdmin {
-				sc.RawSend(security.Payload{Type: 124, Data: ""})
+				sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
 				break
 			}
 
@@ -386,13 +388,188 @@ func (t Transport) MainHandler(ctx context.Context, sc *security.SecureConn) err
 				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
 				return InternalJSONError
 			}
-			sc.SecureSend(security.Payload{Type: 57, Data: string(jsonbytes)})
 
 			for _, user := range t.pool.GetUsersByChatID(req.ChatID) {
-				if user == sc.PeerID() {continue}
 				receiverConn, connected := t.connmap[user]
 				if !connected {continue}
 				receiverConn.SecureSend(security.Payload{Type: 57, Data: string(jsonbytes)})
+			}
+			break
+		case 18: // AddTie
+			if sc.PeerID() < 0 {
+				logger.Info(ctx, "Requesting while unauthorized")
+				sc.RawSend(security.Payload{Type: 127, Data: "Unauthorized"})
+				return UnauthorizedError
+			}
+			var req postgres.Tie
+			if err := json.Unmarshal([]byte(payload.Data), &req); err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
+				return InternalJSONError
+			}
+			
+			_, err := t.pool.GetIsAdminByUserIDAndChatID(req.UserID, req.ChatID)
+			if !errors.Is(err, pgx.ErrNoRows) {
+				sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
+				break
+			}
+
+			isAdmin, err := t.pool.GetIsAdminByUserIDAndChatID(sc.PeerID(), req.ChatID) // Проверяем права доступа
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
+					break
+				}
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal DB error"})
+				return InternalDBError
+			}
+			if !isAdmin {
+				sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
+				break
+			}
+
+			err = t.pool.InsertTieByIDAndChatIDAndRole(req.UserID, req.ChatID, req.CanSend)
+			if err != nil {
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal DB error"})
+				return InternalDBError
+			}
+
+			jsonbytes, err := json.Marshal(AddTieResponse{UserID: req.UserID, ChatID: req.ChatID, Login: t.pool.GetLoginByID(req.UserID), CanSend: req.CanSend})
+			if err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
+				return InternalJSONError
+			}
+
+			for _, user := range t.pool.GetUsersByChatID(req.ChatID) {
+				if user == req.UserID {continue}
+				receiverConn, connected := t.connmap[user]
+				if !connected {continue}
+				receiverConn.SecureSend(security.Payload{Type: 58, Data: string(jsonbytes)})
+			}
+
+			newUserConn, connected := t.connmap[req.UserID]
+			if connected {
+				newUserBytes, err := json.Marshal(postgres.Chat{ChatID: req.ChatID, Label: t.pool.GetLabelByChatID(req.ChatID), CanSend: req.CanSend})
+				if err != nil {
+					logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+					break
+				}
+
+				newUserConn.SecureSend(security.Payload{Type: 55, Data: string(newUserBytes)})
+			}
+			break
+		case 19: // DeleteTie
+			if sc.PeerID() < 0 {
+				logger.Info(ctx, "Requesting while unauthorized")
+				sc.RawSend(security.Payload{Type: 127, Data: "Unauthorized"})
+				return UnauthorizedError
+			}
+			var req DeleteTieData
+			if err := json.Unmarshal([]byte(payload.Data), &req); err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
+				return InternalJSONError
+			}
+
+			deletedIsAdmin, err := t.pool.GetIsAdminByUserIDAndChatID(req.UserID, req.ChatID)
+			if err != nil {
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal DB error"})
+				return InternalDBError
+			}
+
+			isAdmin, err := t.pool.GetIsAdminByUserIDAndChatID(sc.PeerID(), req.ChatID) // Проверяем права доступа
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
+					break
+				}
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal DB error"})
+				return InternalDBError
+			}
+			if !isAdmin {
+				sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
+				break
+			}
+
+			err = t.pool.DeleteTieByIDAndChatID(req.UserID, req.ChatID)
+			if err != nil {
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal DB error"})
+				return InternalDBError
+			}
+
+			if !deletedIsAdmin { // Слушатели не увидят удаления другого слушателя
+				for _, user := range t.pool.GetAdminsIDsByChatID(req.ChatID) {
+					if user == req.UserID {continue}
+					receiverConn, connected := t.connmap[user]
+					if !connected {continue}
+					receiverConn.SecureSend(security.Payload{Type: 59, Data: payload.Data})
+				}
+				break
+			}
+			
+			for _, user := range t.pool.GetUsersByChatID(req.ChatID) {
+				if user == req.UserID {continue}
+				receiverConn, connected := t.connmap[user]
+				if !connected {continue}
+				receiverConn.SecureSend(security.Payload{Type: 59, Data: payload.Data})
+			}
+
+			// С точки зрения удаляемого в любом случае пропадает чат
+
+			deletedBytes, err := json.Marshal(postgres.Chat{ChatID: req.ChatID, Label: t.pool.GetLabelByChatID(req.ChatID), CanSend: true})
+			if err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				break
+			}
+			deletedConn, connected := t.connmap[req.UserID]
+			if !connected {break}
+			deletedConn.SecureSend(security.Payload{Type: 60, Data: string(deletedBytes)})
+			break
+		case 20: // DeleteChat
+			if sc.PeerID() < 0 {
+				logger.Info(ctx, "Requesting while unauthorized")
+				sc.RawSend(security.Payload{Type: 127, Data: "Unauthorized"})
+				return UnauthorizedError
+			}
+			var req DeleteChatData
+			if err := json.Unmarshal([]byte(payload.Data), &req); err != nil {
+				logger.Warn(ctx, "JSON encoder error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal JSON error"})
+				return InternalJSONError
+			}
+
+			isAdmin, err := t.pool.GetIsAdminByUserIDAndChatID(sc.PeerID(), req.ChatID) // Проверяем права доступа
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
+					break
+				}
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal DB error"})
+				return InternalDBError
+			}
+			if !isAdmin {
+				sc.RawSend(security.Payload{Type: 127, Data: "Access denied!"})
+				break
+			}
+
+			err = t.pool.MarkChatAsDeletedByChatID(req.ChatID)
+			if err != nil {
+				logger.Warn(ctx, "Postgres error", zap.Error(err))
+				sc.RawSend(security.Payload{Type: 127, Data: "Internal DB error"})
+				return InternalDBError
+			}
+			
+			for _, user := range t.pool.GetUsersByChatID(req.ChatID) {
+				receiverConn, connected := t.connmap[user]
+				if !connected {continue}
+				receiverConn.SecureSend(security.Payload{Type: 60, Data: payload.Data})
 			}
 			break
 		case 48: // WhoAmI

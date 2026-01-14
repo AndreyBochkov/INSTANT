@@ -23,3 +23,9 @@ type Alert struct {
 	Ts			int64		`json:"ts"`
 	Body		string		`json:"body"`
 }
+
+type Tie struct {
+	UserID		int		`json:"userid"`
+	ChatID		int		`json:"chatid"`
+	CanSend		bool	`json:"cansend"`
+}

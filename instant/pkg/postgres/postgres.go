@@ -61,8 +61,8 @@ func (p PGXPool) InsertUser(iKey []byte, login string) (int, error) {
 
 // =====
 
-func (p PGXPool) GetChatListByID(userID int) ([]Chat, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "WITH t AS (SELECT chatid, role FROM chat_schema.ties WHERE userid = $1) SELECT t.chatid, g.label, (t.role = 'admin') AS cansend FROM t JOIN chat_schema.groups g ON g.chatid = t.chatid AND g.deleted = FALSE;", userID)
+func (p PGXPool) GetChatListByID(userid int) ([]Chat, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "WITH t AS (SELECT chatid, role FROM chat_schema.ties WHERE userid=$1) SELECT t.chatid, g.label, (t.role='admin') AS cansend FROM t JOIN chat_schema.groups g ON g.chatid=t.chatid AND g.deleted=FALSE;", userid)
 	if err != nil {
 		return nil, err
 	}
@@ -78,13 +78,21 @@ func (p PGXPool) SearchUsersByQuery(query string) ([]User, error) {
 }
 
 func (p PGXPool) GetIsAdminByUserIDAndChatID(userid int, chatid int) (bool, error) {
+	chatDeleted := false
+	err := p.pgxPool.QueryRow(context.Background(), "SELECT deleted FROM chat_schema.groups WHERE chatid=$1;", chatid).Scan(&chatDeleted)
+	if err == nil && chatDeleted {
+		return false, pgx.ErrNoRows
+	}
+
 	isAdmin := false
-	err := p.pgxPool.QueryRow(context.Background(), "SELECT role = 'admin'::chatrole AS isadmin FROM chat_schema.ties WHERE userid = $1 AND chatid = $2;", userid, chatid).Scan(&isAdmin)
+	if err == nil {
+		err = p.pgxPool.QueryRow(context.Background(), "SELECT role='admin'::chatrole AS isadmin FROM chat_schema.ties WHERE userid=$1 AND chatid=$2;", userid, chatid).Scan(&isAdmin)
+	}
 	return isAdmin, err
 }
 
 func (p PGXPool) GetListenersByChatID(chatid int) ([]User, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT t.userid, u.login FROM chat_schema.ties t JOIN auth_schema.users u ON t.userid = u.id WHERE t.chatid = $1 AND role = 'listener';", chatid)
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT t.userid, u.login FROM chat_schema.ties t JOIN auth_schema.users u ON t.userid=u.id WHERE t.chatid=$1 AND role='listener';", chatid)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +100,7 @@ func (p PGXPool) GetListenersByChatID(chatid int) ([]User, error) {
 }
 
 func (p PGXPool) GetAdminsByChatID(chatid int) ([]User, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT t.userid, u.login FROM chat_schema.ties t JOIN auth_schema.users u ON t.userid = u.id WHERE t.chatid = $1 AND role = 'admin';", chatid)
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT t.userid, u.login FROM chat_schema.ties t JOIN auth_schema.users u ON t.userid=u.id WHERE t.chatid=$1 AND role='admin';", chatid)
 	if err != nil {
 		return nil, err
 	}
@@ -122,12 +130,30 @@ func (p PGXPool) InsertMessage(senderID, chatID int, body string) (int64, int64,
 
 func (p PGXPool) GetUsersByChatID(chatID int) []int {
 	users := []int{}
-	p.pgxPool.QueryRow(context.Background(), "SELECT ARRAY(SELECT t.userid FROM chat_schema.ties t WHERE t.chatid = $1);", chatID).Scan(&users)
+	p.pgxPool.QueryRow(context.Background(), "SELECT ARRAY(SELECT t.userid FROM chat_schema.ties t WHERE t.chatid=$1);", chatID).Scan(&users)
 	return users
 }
 
-func (p PGXPool) UpdateIKeyByID(userID int, iKey []byte) error {
-	_, err := p.pgxPool.Exec(context.Background(), "UPDATE auth_schema.users SET ikey=$2 WHERE id=$1;", userID, iKey)
+func (p PGXPool) GetAdminsIDsByChatID(chatID int) []int {
+	users := []int{}
+	p.pgxPool.QueryRow(context.Background(), "SELECT ARRAY(SELECT t.userid FROM chat_schema.ties t WHERE t.chatid=$1 AND t.role='admin'::chatrole);", chatID).Scan(&users)
+	return users
+}
+
+func (p PGXPool) GetListenersIDsByChatID(chatID int) []int {
+	users := []int{}
+	p.pgxPool.QueryRow(context.Background(), "SELECT ARRAY(SELECT t.userid FROM chat_schema.ties t WHERE t.chatid=$1 AND t.role='listener'::chatrole);", chatID).Scan(&users)
+	return users
+}
+
+func (p PGXPool) GetLabelByChatID(chatID int) string {
+	label := ""
+	p.pgxPool.QueryRow(context.Background(), "SELECT label FROM chat_schema.groups WHERE chatid=$1 AND deleted=FALSE;", chatID).Scan(&label)
+	return label
+}
+
+func (p PGXPool) UpdateIKeyByID(userid int, iKey []byte) error {
+	_, err := p.pgxPool.Exec(context.Background(), "UPDATE auth_schema.users SET ikey=$2 WHERE id=$1;", userid, iKey)
 	return err
 }
 
@@ -139,13 +165,13 @@ func (p PGXPool) GetIDByIKeyUpdatingTS(iKey []byte) int {
 
 // =====
 
-func (p PGXPool) InsertAlert(userID int, body string) error {
-	_, err := p.pgxPool.Exec(context.Background(), "INSERT INTO auth_schema.alerts (userid, body) VALUES ($1, $2);", userID, body)
+func (p PGXPool) InsertAlert(userid int, body string) error {
+	_, err := p.pgxPool.Exec(context.Background(), "INSERT INTO auth_schema.alerts (userid, body) VALUES ($1, $2);", userid, body)
 	return err
 }
 
-func (p PGXPool) GetAlertsByID(userID int) ([]Alert, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "UPDATE auth_schema.alerts SET opened = TRUE WHERE userid = $1 RETURNING alertid, ts, body;", userID)
+func (p PGXPool) GetAlertsByID(userid int) ([]Alert, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "UPDATE auth_schema.alerts SET opened=TRUE WHERE userid=$1 RETURNING alertid, ts, body;", userid)
 	if err != nil {
 		return nil, err
 	}
@@ -154,9 +180,9 @@ func (p PGXPool) GetAlertsByID(userID int) ([]Alert, error) {
 
 // =====
 
-func (p PGXPool) GetLoginByID(userID int) string {
-	login := ""
-	p.pgxPool.QueryRow(context.Background(), "SELECT login FROM auth_schema.users WHERE id=$1;", userID).Scan(&login)
+func (p PGXPool) GetLoginByID(userid int) string {
+	login := "???"
+	p.pgxPool.QueryRow(context.Background(), "SELECT login FROM auth_schema.users WHERE id=$1;", userid).Scan(&login)
 	return login
 }
 
@@ -165,6 +191,25 @@ func (p PGXPool) CheckLogin(login string) bool {
 	p.pgxPool.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM auth_schema.users WHERE login=$1);", login).Scan(exists)
 	return exists
 }
+
+// =====
+
+func (p PGXPool) InsertTieByIDAndChatIDAndRole(userid int, chatid int, role bool) error {
+	_, err := p.pgxPool.Exec(context.Background(), "INSERT INTO chat_schema.ties (userid, chatid, role) VALUES ($1, $2, CASE WHEN $3 THEN 'admin'::chatrole ELSE 'listener'::chatrole END);", userid, chatid, role)
+	return err
+}
+
+func (p PGXPool) DeleteTieByIDAndChatID(userid int, chatid int) error {
+	_, err := p.pgxPool.Exec(context.Background(), "DELETE FROM chat_schema.ties WHERE userid=$1 AND chatid=$2;", userid, chatid)
+	return err
+}
+
+func (p PGXPool) MarkChatAsDeletedByChatID(chatid int) error {
+	_, err := p.pgxPool.Exec(context.Background(), "UPDATE chat_schema.groups SET deleted=TRUE WHERE chatid=$1;", chatid)
+	return err
+}
+
+// =====
 
 func (p PGXPool) Close() {
 	p.pgxPool.Close()

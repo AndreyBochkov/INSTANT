@@ -10,9 +10,9 @@ import (
 
 type Transport struct {
 	sync.Mutex
-	connmap				map[int](*security.SecureConn)
+	connmap			map[int](*security.SecureConn)
 
-	pool				postgres.PGXPool
+	pool			postgres.PGXPool
 }
 
 var (
@@ -28,6 +28,7 @@ type RegisterRequest struct { //11
 
 // type GetChatsRequest [ackbyte] { //12
 
+//TODO: Replace struct with bare string!
 type SearchRequest struct { //13
 	Query		string	`json:"query"`
 }
@@ -52,13 +53,26 @@ type SendMessageRequest struct { //17
 	Body		string	`json:"body"`
 }
 
+// type AddTieRequest postgres.Tie //18
+
+type DeleteTieData struct { //19, 59
+	UserID		int		`json:"userid"`
+	ChatID		int		`json:"chatid"`
+}
+
+type DeleteChatData struct { //20, 60
+	ChatID		int		`json:"chatid"`
+}
+
+// type WhoAmIRequest [ackbyte] // 48
+
 // type GetAlertsRequest [ackbyte] //49
 
 type ChangeIKeyRequest struct { //50
 	New			[]byte	`json:"new"`
 }
 
-// type RegisterResponse [ackbyte] //51
+// type RegisterResponse WhoAmI //51
 
 // type GetChatsResponse []postgres.Chat //52
 
@@ -85,17 +99,25 @@ type SyncMessage struct { //57 SendMessageResponse
 	Sender		int		`json:"sender"`
 }
 
-// type GetAlertsResponse []postgres.Alert //89
+type AddTieResponse struct { // 58
+	UserID		int		`json:"userid"`
+	ChatID		int		`json:"chatid"`
+	CanSend		bool	`json:"cansend"`
+	Login		string	`json:"login"`
+}
 
-// type ChangeIKeyResponse [ackbyte] { //90
-
-type WhoAmI struct { //91
+// TODO: replace WhoAmI with postgres.User in v3.0!!
+type WhoAmI struct { //88
 	Login		string	`json:"login"`
 	Id			int		`json:"id"`
 }
 
+// type GetAlertsResponse []postgres.Alert //89
+
+// type ChangeIKeyResponse [ackbyte] { //90
+
 // type FATAL string //127
 // type EmptyCredentials [ackbyte] //126
 // type DuplicatedLogin [ackbyte] //125
-// type AccessDenied [ackbyte] //124
+// type AccessDenied [ackbyte] //deprecated
 // type LoginDenied [ackbyte] //123

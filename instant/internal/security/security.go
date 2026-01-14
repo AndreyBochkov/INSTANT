@@ -11,6 +11,7 @@ import (
 	"errors"
 	"time"
 	"sync"
+	"strconv"
 
 	"nhooyr.io/websocket"
 	"go.uber.org/zap"
@@ -48,6 +49,7 @@ func (sc *SecureConn) SecureRecv(ctx context.Context) (Payload, error) {
 		(*sc).conn.Write(context.Background(), websocket.MessageBinary, append([]byte{127}, []byte("Internal AES error")...))
 		return nilPayload, err
 	}
+	logger.Info(ctx, "Recv: " + strconv.Itoa(int(enc[0])))
 	return Payload{Type: enc[0], Data: string(rawTyped)}, nil
 }
 
@@ -173,7 +175,7 @@ func SecurityWSHandler(rotationInterval int, version int, getIDByIKey func (iKey
 		}()
 		
 		if err := next(ctx, sc); err != nil {
-			logger.Warn(ctx, "Error proceeding to the next()", zap.Error(err))
+			logger.Warn(ctx, "Error from next()", zap.Error(err))
 		}
 	})
 }
