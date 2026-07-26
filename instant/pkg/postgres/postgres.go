@@ -59,7 +59,47 @@ func (p PGXPool) InsertUser(iKey []byte, login string) (int, error) {
 	return id, err
 }
 
-// =====
+func (p PGXPool) GetAdminEventsByChatIDAnsAfter(chatid int, after int64) ([]Event, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT eventid, ts, type::TEXT, chatid, userid, subid, content FROM chat_schema.events WHERE ts >= $1 AND chatid = $2;", after, chatid)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[Event])
+}
+
+// GetListenerEvents TODO
+
+func (p PGXPool) SearchUsersByQuery(query string) ([]User, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT id, login FROM auth_schema.users WHERE login ILIKE $1 OR name ILIKE $1 ORDER BY ts DESC LIMIT 5;", query)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[User])
+}
+
+func (p PGXPool) GetRoleByUserIDAndChatID(userid int, chatid int) (string, error) {
+	chatDeleted := false
+	err := p.pgxPool.QueryRow(context.Background(), "SELECT deleted FROM chat_schema.groups WHERE chatid=$1;", chatid).Scan(&chatDeleted)
+	if err == nil && chatDeleted {
+		return false, pgx.ErrNoRows
+	}
+
+	role := ""
+	if err == nil {
+		err = p.pgxPool.QueryRow(context.Background(), "SELECT role FROM chat_schema.ties WHERE userid=$1 AND chatid=$2;", userid, chatid).Scan(&role)
+	}
+	return role, err
+}
+
+func (p PGXPool) GetAdminsByChatID(chatid int) ([]User, error) {
+	rows, err := p.pgxPool.Query(context.Background(), "SELECT t.userid, u.login FROM chat_schema.ties t JOIN auth_schema.users u ON t.userid=u.id WHERE t.chatid=$1 AND role='admin';", chatid)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[User])
+}
+
+/*
 
 func (p PGXPool) GetChatListByID(userid int) ([]Chat, error) {
 	rows, err := p.pgxPool.Query(context.Background(), "WITH t AS (SELECT chatid, role FROM chat_schema.ties WHERE userid=$1) SELECT t.chatid, g.label, (t.role='admin') AS cansend FROM t JOIN chat_schema.groups g ON g.chatid=t.chatid AND g.deleted=FALSE;", userid)
@@ -67,14 +107,6 @@ func (p PGXPool) GetChatListByID(userid int) ([]Chat, error) {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Chat])
-}
-
-func (p PGXPool) SearchUsersByQuery(query string) ([]User, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT id, login FROM auth_schema.users WHERE login ILIKE $1 ORDER BY ts DESC LIMIT 20;", query)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[User])
 }
 
 func (p PGXPool) GetIsAdminByUserIDAndChatID(userid int, chatid int) (bool, error) {
@@ -93,14 +125,6 @@ func (p PGXPool) GetIsAdminByUserIDAndChatID(userid int, chatid int) (bool, erro
 
 func (p PGXPool) GetListenersByChatID(chatid int) ([]User, error) {
 	rows, err := p.pgxPool.Query(context.Background(), "SELECT t.userid, u.login FROM chat_schema.ties t JOIN auth_schema.users u ON t.userid=u.id WHERE t.chatid=$1 AND role='listener';", chatid)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[User])
-}
-
-func (p PGXPool) GetAdminsByChatID(chatid int) ([]User, error) {
-	rows, err := p.pgxPool.Query(context.Background(), "SELECT t.userid, u.login FROM chat_schema.ties t JOIN auth_schema.users u ON t.userid=u.id WHERE t.chatid=$1 AND role='admin';", chatid)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +233,7 @@ func (p PGXPool) MarkChatAsDeletedByChatID(chatid int) error {
 	return err
 }
 
-// =====
+*/
 
 func (p PGXPool) Close() {
 	p.pgxPool.Close()

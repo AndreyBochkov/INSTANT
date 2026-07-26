@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS chat_schema.broadcasts;
+DROP TABLE IF EXISTS chat_schema.ties;
 DROP TABLE IF EXISTS chat_schema.groups;
 DROP TABLE IF EXISTS auth_schema.alerts;
 
@@ -19,3 +20,5 @@ CREATE TABLE IF NOT EXISTS chat_schema.messages
     sender INT NOT NULL,
     receiver INT NOT NULL
 );
+
+DROP TYPE IF EXISTS chatrole;

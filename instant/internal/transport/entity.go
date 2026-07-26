@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"instant_service/pkg/postgres"
+	p "instant_service/pkg/postgres"
 	"instant_service/internal/security"
 )
 
@@ -12,7 +12,7 @@ type Transport struct {
 	sync.Mutex
 	connmap			map[int](*security.SecureConn)
 
-	pool			postgres.PGXPool
+	pool			p.PGXPool
 }
 
 var (
@@ -20,104 +20,114 @@ var (
 	InternalJSONError = errors.New("Internal JSON error")
 	InternalDBError = errors.New("Internal DB error")
 	UnauthorizedError = errors.New("Unauthorized")
+	MalformedEventError = errors.New("Malformed event")
 )
 
 type RegisterRequest struct { //11
 	Login		string	`json:"login"`
+	Img			[]byte	`json:"img"`
 }
 
-// type GetChatsRequest [ackbyte] { //12
+// type RegisterResponse p.User //51
 
-//TODO: Replace struct with bare string!
 type SearchRequest struct { //13
 	Query		string	`json:"query"`
 }
 
-type GetPropertiesRequest struct { // 14
+// type SearchResponse []p.User //53
+
+type GetAdminsRequest struct { //14
 	ChatID		int		`json:"chatid"`
 }
 
-type NewChatRequest struct { //15
-	Admins		[]int	`json:"admins"`
-	Listeners	[]int	`json:"listeners"`
-	Label		string	`json:"label"`
+type GetAdminsResponse struct { //54
+	ChatID		int			`json:"chatid"`
+	Admins		[]p.User 	`json:"admins"`
 }
 
-type GetMessagesRequest struct { //16
+type GetListenersRequest struct { //15
 	ChatID		int		`json:"chatid"`
-	Offset		int		`json:"offset"`
 }
 
-type SendMessageRequest struct { //17
+type GetListenersResponse struct { //55
+	ChatID		int			`json:"chatid"`
+	Listeners	[]p.User	`json:"listeners"`
+}
+
+type GetQueuedRequest struct { //16
 	ChatID		int		`json:"chatid"`
-	Body		string	`json:"body"`
 }
 
-// type AddTieRequest postgres.Tie //18
+type GetQueuedResponse struct { //56
+	ChatID		int			`json:"chatid"`
+	Queued		[]p.User 	`json:"queued"`
+}
 
-type DeleteTieData struct { //19, 59
+type GetAllEventsRequest struct { //21
+	FromID		int64	`json:"fromid"`
+}
+
+// type GetAllEventsResponse []p.Event //61
+
+type GetChatEventsRequest struct { //22
+	ToID		int64	`json:"toid"`
+	ChatID		int		`json:"chatid"`
+}
+
+// type GetChatEventsResponse []p.Event //62
+
+type EventRequest struct { //23
+	Eventtype	string	`json:"type"`
+	ChatID		int		`json:"chatid"`
 	UserID		int		`json:"userid"`
-	ChatID		int		`json:"chatid"`
+	SubID		int64	`json:"subid"`
+	Content		[]byte	`json:"content"`
 }
 
-type DeleteChatData struct { //20, 60
-	ChatID		int		`json:"chatid"`
+type ChatData struct {
+	Label		string	`json:"label"`
+	Img			[]byte	`json:"img"`
 }
+
+// type EventResponse p.Event 63
+
+type ReadMessageRequest struct { //31
+	ChatID		int		`json:"chatid"`
+	EventID		int64	`json:"eventid"`
+}
+
+// type ReadMessageResponse ReadMessageRequest // 71
+
+type WhoReadThisRequest struct { //32
+	ChatID		int		`json:"chatid"`
+	EventID		int64	`json:"eventid"`
+}
+
+type Read struct {
+	Ts			int64	`json:"ts"`
+	UserID		int		`json:"userid"`
+}
+type WhoReadThisResponse struct { //72
+	ChatID		int		`json:"chatid"`
+	EventID		int64	`json:"eventid"`
+	ReadList	[]Read	`json:"read"`
+}
+
+type WhoIsThisRequest struct { //17
+	UserIDs		[]int	`json:"userids"`
+}
+
+// type WhoIsThisResponse []p.User //57
 
 // type WhoAmIRequest [ackbyte] // 48
-
-// type GetAlertsRequest [ackbyte] //49
 
 type ChangeIKeyRequest struct { //50
 	New			[]byte	`json:"new"`
 }
-
-// type RegisterResponse WhoAmI //51
-
-// type GetChatsResponse []postgres.Chat //52
-
-// type SearchResponse []postgres.User //53
-
-type GetPropertiesResponse struct { // 54
-	ChatID		int					`json:"chatid"`
-	Admins		[]postgres.User		`json:"admins"`
-	Listeners	[]postgres.User		`json:"listeners"`
-}
-
-// type NewChatResponse postgres.Chat //55
-
-type GetMessagesResponse struct { //56
-	ChatID		int					`json:"chatid"`
-	Messages	[]postgres.Message	`json:"messages"`
-}
-
-type SyncMessage struct { //57 SendMessageResponse
-	ChatID		int		`json:"chatid"`
-	MessageID	int64	`json:"messageid"`
-	Ts			int64	`json:"ts"`
-	Body		string	`json:"body"`
-	Sender		int		`json:"sender"`
-}
-
-type AddTieResponse struct { // 58
-	UserID		int		`json:"userid"`
-	ChatID		int		`json:"chatid"`
-	CanSend		bool	`json:"cansend"`
-	Login		string	`json:"login"`
-}
-
-// TODO: replace WhoAmI with postgres.User in v3.0!!
-type WhoAmI struct { //88
-	Login		string	`json:"login"`
-	Id			int		`json:"id"`
-}
-
-// type GetAlertsResponse []postgres.Alert //89
 
 // type ChangeIKeyResponse [ackbyte] { //90
 
 // type FATAL string //127
 // type EmptyCredentials [ackbyte] //126
 // type DuplicatedLogin [ackbyte] //125
-// type AccessDenied [ackbyte] //deprecated
 // type LoginDenied [ackbyte] //123
